@@ -65,7 +65,8 @@ def build_models(C: dict) -> tuple[TaxAssumptions, CashAlternative, list[Scenari
             fixed_period_years=int(C["fixed"]), horizon_years=eff_horizon,
             appreciation_rate=C["appr"], gross_income=float(C["income"]),
             other_purchase_costs=float(C["other"]), selling_cost_rate=C["sell"], nhg=C["nhg"],
-            extra_repay_once=float(C["extra_once"]), extra_repay_annual=float(C["extra_annual"]),
+            extra_repay_once=float(C.get("extra_once", 0)),
+            extra_repay_annual=float(C.get("extra_annual", 0)),
         )
         for (n, t, d) in C["scenarios"]
     ]
@@ -108,7 +109,8 @@ def compute_sweep(snap_json: str, cap: float, metric: str):
             fixed_period_years=int(C["fixed"]), horizon_years=eff_horizon,
             appreciation_rate=C["appr"], gross_income=float(C["income"]),
             other_purchase_costs=float(C["other"]), selling_cost_rate=C["sell"], nhg=C["nhg"],
-            extra_repay_once=float(C["extra_once"]), extra_repay_annual=float(C["extra_annual"]))
+            extra_repay_once=float(C.get("extra_once", 0)),
+            extra_repay_annual=float(C.get("extra_annual", 0)))
 
     # Fixed monthly budget = highest first-month payment (full linear loan), so the
     # monthly spare invested never goes negative and all curves share one X grid.
@@ -592,8 +594,8 @@ def build_comparison_note_html() -> str:
     else:
         body = ("Vrij geld wordt niet meegenomen. Elk scenario wordt beoordeeld op de eigen inbreng "
                 "en maandlast. Rangschikking op netto resultaat.")
-    if C["extra_once"] or C["extra_annual"]:
-        if C["extra_once"]:
+    if C.get("extra_once") or C.get("extra_annual"):
+        if C.get("extra_once"):
             extra = f"eenmalig {euro(C['extra_once'])} extra afgelost bij aankoop"
         else:
             extra = f"jaarlijks {euro(C['extra_annual'])} extra afgelost"
