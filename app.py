@@ -162,7 +162,7 @@ with st.sidebar:
                             help="The purchase price you're comparing scenarios against.")
     income = st.number_input("Gross annual income", 0, 1_000_000, 60_000, 1_000,
                              help="Sets your tax bracket — and so the value of mortgage-interest deduction.")
-    horizon = st.slider("Years before you sell", 1, 30, 10,
+    horizon = st.slider("Years before you sell", 1, 30, 5,
                         help="How long you keep the house. The whole comparison runs over this period.")
     rate = st.number_input("Mortgage interest %", 0.0, 15.0, 3.9, 0.05,
                            help="Your hypotheekrente (annual nominal rate).") / 100
@@ -186,10 +186,10 @@ with st.sidebar:
             "Invest spare cash in:",
             options=list(CASH_VEHICLES.keys()),
             format_func=lambda k: CASH_VEHICLES[k],
-            index=2,
+            index=0,
         )
-        sav_rate = st.number_input("Savings rente %/yr", 0.0, 15.0, 1.5, 0.1) / 100
-        dep_rate = st.number_input("Deposit rente %/yr", 0.0, 15.0, 2.5, 0.1) / 100
+        sav_rate = st.number_input("Savings rente %/yr", 0.0, 15.0, 2.25, 0.1) / 100
+        dep_rate = st.number_input("Deposit rente %/yr", 0.0, 15.0, 3.0, 0.1) / 100
         inv_ret = st.number_input("Investment return %/yr", -10.0, 25.0, 6.0, 0.5) / 100
         fee = st.number_input("Investment fee %/yr", 0.0, 5.0, 0.3, 0.05,
                               help="Annual cost of the portfolio (fund/ETF fees), applied to investments only.") / 100
@@ -284,7 +284,10 @@ with st.container(border=True):
                         ab_down = float(down)
 
             loan = max(0.0, price - down)
-            st.caption(f"→ Loan: **{euro(loan)}**  ·  mortgage: **{TYPES[mtype]}**")
+            st.caption(
+                f"→ **{name}**: cash in **{euro(down)}**  ·  loan **{euro(loan)}**  ·  "
+                f"mortgage **{TYPES[mtype]}**"
+            )
 
             scenarios.append(ScenarioInput(
                 name=name, house_price=float(price), down_payment=float(down),
