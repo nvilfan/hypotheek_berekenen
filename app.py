@@ -323,11 +323,9 @@ with st.sidebar:
         format_func=lambda k: CASH_VEHICLES[k],
         index=0,
         help="Wat gebeurt er met het eigen geld dat je niet in de woning stopt (vrij geld)? "
-             "Spaarrekening, deposito of beleggen: het wordt aan het begin weggezet en het "
-             "maandelijkse verschil in lasten komt er bij; het groeit na kosten en box 3. "
-             "‘Extra aflossen op de woning’: het vrije geld wordt juist gebruikt om de hypotheek "
-             "vervroegd af te lossen (1× per jaar), wat rente bespaart. Rendementen stel je fijn "
-             "bij onder ‘Verfijnen’.")
+             "Bij sparen, deposito of beleggen wordt het aan het begin weggezet en komt het "
+             "maandelijkse verschil in lasten erbij; het groeit na kosten en box 3. Rendementen "
+             "stel je fijn bij onder ‘Verfijnen’.")
 
     horizon = st.slider("Aantal jaren tot verkoop", 1, 30, 5,
                         help="Hoe lang je de woning naar verwachting houdt. De vergelijking loopt over deze periode.")
@@ -335,6 +333,23 @@ with st.sidebar:
                            help="De jaarlijkse nominale hypotheekrente.") / 100
     appr = st.number_input("Verwachte waardestijging % per jaar", -10.0, 20.0, 3.0, 0.25,
                            help="De gemiddelde jaarlijkse waardestijging van de woning. Dit heeft veel invloed op de uitkomst.") / 100
+
+    extra_repay_on = st.toggle(
+        "Extra aflossen op de woning", value=False, key="extra_repay_on",
+        help="Los je naast de reguliere maandlast extra af op de hypotheek? Dat verlaagt de schuld "
+             "en bespaart rente. Dit staat los van waar je vrije geld naartoe gaat.")
+    if extra_repay_on:
+        extra_amount = st.number_input(
+            "Extra aflossing", 0, 1_000_000, 10_000, 1_000, key="extra_amount",
+            help="Bedrag dat je extra aflost, bovenop de reguliere aflossing. Dit is geld uit eigen "
+                 "zak en telt mee in je totale inleg.")
+        extra_freq = st.radio("Frequentie", ["Eenmalig", "Per jaar"], index=1, horizontal=True,
+                              key="extra_freq",
+                              help="Eenmalig bij aankoop, of elk jaar (gemiddeld) tijdens de looptijd.")
+        extra_once = extra_amount if extra_freq == "Eenmalig" else 0
+        extra_annual = extra_amount if extra_freq == "Per jaar" else 0
+    else:
+        extra_once = extra_annual = 0
 
     st.divider()
     st.header("Scenario's vergelijken")
@@ -382,19 +397,6 @@ with st.sidebar:
         term = st.slider("Looptijd hypotheek in jaren", 5, 30, 30)
         fixed = st.selectbox("Rentevaste periode in jaren", [1, 5, 10, 20, 30], index=2)
         nhg = st.checkbox("NHG gebruiken", value=True)
-
-    with st.expander("Extra aflossen"):
-        st.caption("Los je naast de reguliere maandlast extra af op de hypotheek? Dat verlaagt de "
-                   "schuld en bespaart rente. Dit staat los van ‘Vrij geld gaat naar’ en geldt voor "
-                   "alle scenario's.")
-        extra_amount = st.number_input(
-            "Extra aflossing", 0, 1_000_000, 0, 1_000,
-            help="Bedrag dat je extra aflost, bovenop de reguliere aflossing. Dit is geld uit eigen "
-                 "zak en telt mee in je totale inleg.")
-        extra_freq = st.radio("Frequentie", ["Eenmalig", "Per jaar"], index=0, horizontal=True,
-                              help="Eenmalig bij aankoop, of elk jaar (gemiddeld) tijdens de looptijd.")
-    extra_once = extra_amount if extra_freq == "Eenmalig" else 0
-    extra_annual = extra_amount if extra_freq == "Per jaar" else 0
 
     with st.expander("Rendement op vrij geld"):
         st.caption("Verwacht rendement per bestemming van het vrije geld. De bestemming zelf "
@@ -501,15 +503,6 @@ def reason_line(ws, wr, rs, rr) -> str:
     net_rate = alt.net_rate()
     dp_diff = ws.down_payment - rs.down_payment
     if abs(dp_diff) > 1_000:
-        if alt.repays:
-            # Free cash is used to repay too, so down payment vs free cash is mostly
-            # a timing difference — both pay the loan down.
-            if dp_diff > 0:
-                return (f"Meer eigen geld meteen in de woning ({euro(ws.down_payment)} tegenover "
-                        f"{euro(rs.down_payment)}) wint hier net: je verlaagt de schuld direct in plaats "
-                        f"van pas bij de jaarlijkse extra aflossing, en bespaart zo iets meer rente.")
-            return (f"Minder eigen geld vooraf en de rest jaarlijks extra aflossen werkt hier nipt beter: "
-                    f"je houdt langer geld achter de hand terwijl de hypotheek alsnog versneld omlaag gaat.")
         if dp_diff > 0:
             return (f"Meer eigen geld in de woning ({euro(ws.down_payment)} tegenover "
                     f"{euro(rs.down_payment)}) pakt hier het beste uit: je hypotheekrente van {pct(ws.interest_rate)} "
@@ -579,13 +572,7 @@ def build_reco_html() -> str:
 
 
 def build_comparison_note_html() -> str:
-    if alt.repays:
-        body = (
-            f"Elk scenario start met hetzelfde eigen geld ({euro(ref_cash)}) en hetzelfde maandbudget van "
-            f"{euro(budget)}. Wat niet als eigen inbreng in de woning gaat, is vrij geld en wordt gebruikt "
-            f"om de hypotheek 1× per jaar extra af te lossen. Rangschikking op netto resultaat."
-        )
-    elif alt.invests:
+    if alt.invests:
         body = (
             f"Elk scenario start met hetzelfde eigen geld ({euro(ref_cash)}) en hetzelfde maandbudget van "
             f"{euro(budget)}. Wat niet als eigen inbreng in de woning gaat, is vrij geld en gaat naar "
@@ -614,14 +601,10 @@ def build_scenario_cards_html() -> str:
             ("Eigen inbreng in woning", euro(s.down_payment)),
             ("Resterende hypotheek", euro(r.remaining_balance)),
         ]
-        if alt.repays:
-            rows.append(("Extra afgelost met vrij geld", euro(r.extra_repaid_from_free_cash)))
-            if r.side_pot_end > 1:  # cash left once the loan was fully repaid
-                rows.append(("Resterend vrij geld (cash)", euro(r.side_pot_end)))
-        elif alt.invests:
+        if alt.invests:
             rows.append(("Spaar-/beleggingspot bij verkoop", euro(r.side_pot_end)))
-        if r.extra_repaid_explicit > 1:
-            rows.append(("Extra afgelost (eigen zak)", euro(r.extra_repaid_explicit)))
+        if r.extra_repaid > 1:
+            rows.append(("Extra afgelost", euro(r.extra_repaid)))
         row_html = "".join(
             f'<div class="metric-row"><span>{label}</span><span>{value}</span></div>'
             for label, value in rows
@@ -819,9 +802,6 @@ with t_wealth:
 with t_profit:
     st.caption("Aflossen is geen winst: je zet geld om in overwaarde. Het netto resultaat komt vooral uit "
                "waardestijging, rente, aankoop- en verkoopkosten, belastingvoordeel en rendement op vrij geld.")
-    if alt.repays:
-        st.caption("Je vrije geld lost de hypotheek af, dus ‘rendement vrij geld’ is hier €0; het voordeel "
-                   "zie je terug in een lagere post **betaalde rente**.")
     pcols = st.columns(len(results))
     for i, (col, s, r) in enumerate(zip(pcols, scenarios, results)):
         appreciation = r.home_value_end - s.house_price
@@ -877,8 +857,7 @@ with t_table:
             "Resterende hypotheek": euro(r.remaining_balance),
             "Verkoopkosten": euro(r.selling_costs),
             "Vrij geld bij verkoop": euro(r.side_pot_end),
-            "Extra afgelost (vrij geld)": euro(r.extra_repaid_from_free_cash),
-            "Extra afgelost (eigen zak)": euro(r.extra_repaid_explicit),
+            "Extra afgelost": euro(r.extra_repaid),
             "Totale rente": euro(r.total_interest),
             "Totale aflossing (incl. extra)": euro(r.total_principal_repaid),
             "Totaal betaald aan bank": euro(r.total_interest + r.total_principal_repaid),

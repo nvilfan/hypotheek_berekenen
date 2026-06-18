@@ -179,9 +179,12 @@ def test_one_off_extra_repayment_cuts_balance_and_interest():
     # A lump repayment at the start lowers the remaining debt and the interest paid.
     assert extra.remaining_balance < base.remaining_balance
     assert extra.total_interest < base.total_interest
-    assert extra.extra_repaid_explicit == pytest.approx(25_000)
+    assert extra.extra_repaid == pytest.approx(25_000)
     # That €25k is out of pocket -> contributed more than the no-extra case.
     assert extra.total_contributed > base.total_contributed
+    # It sits as equity, so net worth rises by at least the €25k repaid — and more,
+    # because the fixed-payment annuity then amortises faster (interest saved).
+    assert extra.net_worth_end - base.net_worth_end > 25_000
 
 
 def test_annual_extra_repayment_accumulates():
@@ -190,46 +193,16 @@ def test_annual_extra_repayment_accumulates():
                   mortgage_type="annuity", horizon_years=5)
     r = run_scenario(ScenarioInput(name="e", extra_repay_annual=10_000, **common), tax)
     # 5 yearly payments of 10k applied to the loan.
-    assert r.extra_repaid_explicit == pytest.approx(50_000)
+    assert r.extra_repaid == pytest.approx(50_000)
     assert r.remaining_balance < run_scenario(ScenarioInput(name="b", **common), tax).remaining_balance
 
 
-def test_repay_vehicle_pays_down_loan_with_free_cash():
-    tax = TaxAssumptions()
-    s = ScenarioInput(name="a", house_price=280_000, down_payment=0,
-                      mortgage_type="annuity", horizon_years=8, interest_rate=0.04)
-    budget = base_monthly_payment(s) + 250
-    repay = run_scenario(s, tax, alt=CashAlternative(vehicle="repay"),
-                         invested_cash=40_000, budget_monthly=budget)
-    invest = run_scenario(s, tax, alt=CashAlternative(vehicle="investment"),
-                          invested_cash=40_000, budget_monthly=budget)
-    # Free cash went into the loan, so the balance is lower and no pot is built.
-    assert repay.remaining_balance < invest.remaining_balance
-    assert repay.extra_repaid_from_free_cash > 0
-    assert repay.side_pot_gain == 0.0
-    assert repay.total_box3_tax == 0.0
-    # Less interest than parking the cash elsewhere.
-    assert repay.total_interest < invest.total_interest
-
-
-def test_profit_bridge_reconciles_for_repay_and_extra():
+def test_profit_bridge_reconciles_with_extra_repayment():
     tax = TaxAssumptions()
     s = ScenarioInput(name="a", house_price=241_000, down_payment=10_000,
                       interest_rate=0.038, mortgage_type="annuity", horizon_years=6,
                       appreciation_rate=0.025, extra_repay_annual=3_000, extra_repay_once=8_000)
-    for veh in ("investment", "savings", "repay", "nowhere"):
+    for veh in ("investment", "savings", "nowhere"):
         r = run_scenario(s, tax, alt=CashAlternative(vehicle=veh),
                          invested_cash=45_000, budget_monthly=1_500)
         assert _bridge(r, s) == pytest.approx(r.net_result, abs=1.0), veh
-
-
-def test_repay_residual_after_full_payoff_is_kept_as_cash():
-    # Tiny loan, lots of free cash routed to repayment: loan clears, rest is cash.
-    tax = TaxAssumptions()
-    s = ScenarioInput(name="a", house_price=120_000, down_payment=100_000,
-                      mortgage_type="linear", horizon_years=10, interest_rate=0.04)
-    r = run_scenario(s, tax, alt=CashAlternative(vehicle="repay"),
-                     invested_cash=80_000, budget_monthly=base_monthly_payment(s) + 500)
-    assert r.remaining_balance == pytest.approx(0.0, abs=1.0)
-    assert r.side_pot_end > 0  # leftover free cash held as cash
-    assert _bridge(r, s) == pytest.approx(r.net_result, abs=1.0)

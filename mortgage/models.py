@@ -53,13 +53,12 @@ class TaxAssumptions:
 
 
 # Where the free cash (lump + spare monthly cash vs the priciest scenario) goes.
-# "repay" uses it to make an extra mortgage repayment once a year instead of
-# building an investment pot; "nowhere" disables the mechanism entirely.
+# "nowhere" disables the mechanism entirely. Extra mortgage repayment is a
+# separate input on the scenario (extra_repay_once / extra_repay_annual).
 CASH_VEHICLES: dict[str, str] = {
     "savings": "Spaarrekening",
     "deposit": "Deposito",
     "investment": "Beleggingsportefeuille",
-    "repay": "Extra aflossen op de woning",
     "nowhere": "Niet meenemen",
 }
 
@@ -86,18 +85,8 @@ class CashAlternative:
 
     @property
     def invests(self) -> bool:
-        """True when free cash participates (a pot is built *or* used to repay)."""
+        """True when free cash is put to work in a growing, box 3-taxed pot."""
         return self.vehicle != "nowhere"
-
-    @property
-    def repays(self) -> bool:
-        """Free cash is used for extra mortgage repayment, not an invested pot."""
-        return self.vehicle == "repay"
-
-    @property
-    def builds_pot(self) -> bool:
-        """Free cash builds a growing, box 3-taxed investment/savings pot."""
-        return self.invests and not self.repays
 
     @property
     def is_investment(self) -> bool:
@@ -108,7 +97,6 @@ class CashAlternative:
             "savings": self.savings_rate,
             "deposit": self.deposit_rate,
             "investment": self.investment_return,
-            "repay": 0.0,
             "nowhere": 0.0,
         }[self.vehicle]
 
