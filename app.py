@@ -286,7 +286,8 @@ with st.container(border=True):
             loan = max(0.0, price - down)
             st.caption(
                 f"→ **{name}**: cash in **{euro(down)}**  ·  loan **{euro(loan)}**  ·  "
-                f"mortgage **{TYPES[mtype]}**"
+                f"mortgage **{TYPES[mtype]}**  ·  sell after **{eff_horizon} yr**  ·  "
+                f"spare cash → **{CASH_VEHICLES[vehicle]}**"
             )
 
             scenarios.append(ScenarioInput(
