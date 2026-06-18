@@ -19,12 +19,78 @@ evaluated at its own down payment and monthly payment.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Iterable, Sequence
 
-import numpy_financial as npf
+import numpy as np
 
 from .models import ScenarioInput, TaxAssumptions, CashAlternative
 from . import tax as taxmod
+
+
+def irr(cashflows: Sequence[float]) -> float:
+    """Internal rate of return per period for a series of cash flows.
+
+    ``numpy_financial.irr`` finds the IRR as a root of the cash-flow polynomial
+    via ``np.roots`` — an O(n^3) eigenvalue solve in the number of periods, which
+    becomes very slow for long monthly horizons (e.g. 360 months). A 1-D root
+    finder on the NPV is exact and ~1000x faster.
+
+    The flows are *not* strictly conventional — year-end tax refunds add positive
+    amounts mid-stream, so there are many sign changes. But the NPV is dominated by
+    the large initial outflow and final inflow: it is positive at low rates and
+    negative at high rates, so the economically meaningful root is bracketed by a
+    safe range and found by bisection (Newton first for speed). Returns ``nan`` if
+    no sign change exists (no real IRR).
+    """
+    cf = np.asarray(cashflows, dtype=float)
+    if cf.size < 2 or not (np.any(cf > 0) and np.any(cf < 0)):
+        return float("nan")
+    t = np.arange(cf.size)
+    # Normalise by the largest flow so the NPV stays well-scaled at any horizon.
+    cfn = cf / np.max(np.abs(cf))
+
+    def npv(r: float) -> float:
+        v = float(np.sum(cfn / (1.0 + r) ** t))
+        return v if np.isfinite(v) else float("nan")
+
+    # Overflow-safe bracket: (1+r)^-t stays finite for r >= -0.8 even at t=360
+    # (≈ -100% per year, far below any realistic IRR). NPV(lo) > 0 (final inflow
+    # dominates), NPV(hi) < 0 (initial outflow dominates) -> guaranteed root.
+    lo, hi = -0.8, 1.0
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        flo, fhi = npv(lo), npv(hi)
+        if not (flo == flo and fhi == fhi) or flo * fhi > 0.0:
+            return float("nan")
+
+        # Newton from a central guess; accept only if it lands inside the bracket.
+        r = 0.01
+        for _ in range(40):
+            f = npv(r)
+            if f == f and abs(f) < 1e-12:
+                if lo < r < hi:
+                    return r
+                break
+            deriv = float(np.sum(-t * cfn / (1.0 + r) ** (t + 1)))
+            if not np.isfinite(deriv) or deriv == 0.0:
+                break
+            r_new = r - f / deriv
+            if not (lo < r_new < hi):      # leave the bracket -> hand off to bisection
+                break
+            if abs(r_new - r) < 1e-13:
+                return r_new
+            r = r_new
+
+        # Robust bisection on the guaranteed bracket.
+        for _ in range(200):
+            mid = (lo + hi) / 2.0
+            fm = npv(mid)
+            if abs(fm) < 1e-12 or (hi - lo) < 1e-14:
+                return mid
+            if flo * fm < 0.0:
+                hi = mid
+            else:
+                lo, flo = mid, fm
+    return (lo + hi) / 2.0
 
 
 @dataclass
@@ -201,8 +267,8 @@ def run_scenario(
     total_contributed = scenario.down_payment + lump + costs["net"] + cash_out - total_tax_benefit
 
     try:
-        irr_m = npf.irr(cashflows)
-        annual_return = (1 + irr_m) ** 12 - 1 if irr_m is not None and irr_m == irr_m else 0.0
+        irr_m = irr(cashflows)
+        annual_return = (1 + irr_m) ** 12 - 1 if irr_m == irr_m else 0.0  # nan-check
     except Exception:
         annual_return = 0.0
 
