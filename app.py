@@ -10,6 +10,7 @@ recommendation and keeps all supporting detail in tabs.
 
 from __future__ import annotations
 
+from html import escape
 import json
 
 import pandas as pd
@@ -151,91 +152,98 @@ st.set_page_config(
 )
 
 # Design system ------------------------------------------------------------- #
-FONT = '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
-INK = "#0f172a"
-MUTED = "#64748b"
-GRID = "#eef2f7"
-LINE = "#e2e8f0"
-GREEN = "#16a34a"
-RED = "#ef4444"
-ACCENTS = ["#2563eb", "#0f766e", "#b45309"]
+FONT = '"IBM Plex Sans", "Aptos", "Segoe UI", sans-serif'
+DISPLAY_FONT = '"IBM Plex Serif", Georgia, serif'
+INK = "#17212b"
+MUTED = "#667085"
+GRID = "#e7ecf2"
+LINE = "#d7dee8"
+GREEN = "#0f766e"
+RED = "#c2410c"
+AMBER = "#b7791f"
+BLUE = "#2d6cdf"
+ACCENTS = [BLUE, GREEN, AMBER]
 
 st.markdown(
     """
     <style>
-      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+      @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@600;700&display=swap');
 
-      html, body, [class*="css"] { font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif; }
-      .stApp { background: #f7f9fc; }
-      .block-container { padding-top: 1.6rem; padding-bottom: 3rem; max-width: 1320px; }
-      h1, h2, h3, h4 { letter-spacing: 0; color: #0f172a; }
+      html, body, [class*="css"] { font-family: 'IBM Plex Sans', 'Aptos', 'Segoe UI', sans-serif; }
+      .stApp { background: #f3f6f8; }
+      .block-container { padding-top: 1.2rem; padding-bottom: 3rem; max-width: 1280px; }
+      h1, h2, h3, h4 { letter-spacing: 0; color: #17212b; }
       #MainMenu, footer { visibility: hidden; }
 
       /* ---- Hero ---- */
-      .hero { background:#fff; border:1px solid #e6edf5; border-left:5px solid #0f766e;
-              border-radius:8px; padding:18px 22px 16px; margin-bottom:18px;
-              box-shadow:0 1px 2px rgba(15,23,42,.04); }
-      .hero h1 { font-size: 1.55rem; margin: 0 0 5px 0; font-weight: 800; }
-      .hero p  { margin: 0; color: #475569; font-size: .98rem; max-width: 820px; line-height:1.5; }
-      .pill { display:inline-block; background:#ecfdf5; color:#0f766e; font-weight:600;
-              padding:3px 10px; border-radius:8px; font-size:.74rem; margin:10px 6px 0 0; }
+      .hero { display:grid; grid-template-columns:minmax(0, 1.45fr) minmax(260px, .55fr);
+              gap:24px; align-items:end; margin:2px 0 18px; padding-bottom:18px;
+              border-bottom:1px solid #dfe6ee; }
+      .brand-kicker { color:#0f766e; font-size:.78rem; font-weight:700; text-transform:uppercase; }
+      .hero h1 { font-family:'IBM Plex Serif', Georgia, serif; font-size:2.15rem;
+                 line-height:1.08; margin:4px 0 8px; font-weight:700; color:#17212b; }
+      .hero p  { margin:0; color:#4b5563; font-size:1rem; max-width:760px; line-height:1.55; }
+      .hero-facts { display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; }
+      .hero-fact { background:#fff; border:1px solid #dfe6ee; border-radius:8px; padding:10px 12px; }
+      .hero-fact .label { color:#667085; font-size:.72rem; }
+      .hero-fact .value { color:#17212b; font-size:.98rem; font-weight:700; margin-top:2px; }
 
       /* ---- Recommendation card (the primary output) ---- */
-      .reco { background:#102a2c; color:#fff; border-radius:8px; padding:24px 28px;
-              margin: 2px 0 10px 0; box-shadow: 0 14px 30px -22px rgba(15,23,42,.6);
-              border:1px solid rgba(255,255,255,.12); }
-      .reco-badge { display:inline-block; background:#d1fae5; color:#065f46;
-              font-weight:700; letter-spacing:0; font-size:.72rem;
-              padding:5px 10px; border-radius:8px; }
-      .reco-title { font-size: 1.55rem; font-weight:800; margin: 13px 0 2px 0; line-height:1.25; }
+      .reco { display:grid; grid-template-columns:minmax(0, 1.2fr) minmax(330px, .8fr);
+              gap:24px; background:#17212b; color:#fff; border-radius:8px; padding:26px 28px;
+              margin: 0 0 12px; box-shadow:0 22px 45px -32px rgba(23,33,43,.9); }
+      .reco-badge { display:inline-block; background:#f2c94c; color:#17212b;
+              font-weight:700; font-size:.78rem; padding:5px 10px; border-radius:6px; }
+      .reco-title { font-family:'IBM Plex Serif', Georgia, serif; font-size:1.95rem;
+              font-weight:700; margin: 14px 0 6px; line-height:1.16; }
       .reco-title b { color:#fff; }
-      .reco-sub { font-size:.98rem; opacity:.92; margin: 8px 0 18px 0; max-width: 860px; line-height:1.55; }
-      .reco-stats { display:grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap:10px; }
-      .reco-stat { background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.18);
-              border-radius:8px; padding:12px 14px; min-width:0; }
-      .reco-stat .l { font-size:.72rem; text-transform:none; letter-spacing:0; opacity:.82; }
-      .reco-stat .v { font-size:1.28rem; font-weight:800; margin-top:3px; }
-      .reco-stat .d { font-size:.78rem; opacity:.85; margin-top:2px; }
+      .reco-sub { font-size:1rem; opacity:.9; margin: 8px 0 0; max-width:720px; line-height:1.55; }
+      .reco-stats { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; }
+      .reco-stat { background:#fff; color:#17212b; border-radius:8px; padding:13px 14px; min-width:0; }
+      .reco-stat .l { font-size:.73rem; color:#667085; }
+      .reco-stat .v { font-size:1.24rem; font-weight:700; margin-top:3px; }
+      .reco-stat .d { font-size:.78rem; color:#667085; margin-top:2px; }
+
+      .compare-note { background:#fff; border:1px solid #dfe6ee; border-radius:8px;
+              padding:12px 14px; color:#475467; font-size:.92rem; margin-bottom:18px; }
 
       /* ---- Scenario column headers ---- */
-      .sc-head { border-top: 4px solid #2563eb; border-radius: 6px 6px 0 0;
-                 padding: 8px 2px 4px 2px; font-weight:700; font-size:1.0rem; }
-      .sc-win { display:inline-block; background:#ecfdf5; color:#16a34a; font-weight:700;
-                font-size:.66rem; padding:2px 8px; border-radius:8px; margin-left:6px;
-                vertical-align:middle; border:1px solid #bbf7d0; }
-
-      /* ---- Metric cards ---- */
-      div[data-testid="stMetric"] {
-          background:#fff; border:1px solid #e8edf3; border-radius:8px;
-          padding:12px 16px; box-shadow:0 1px 2px rgba(16,24,40,.04); }
-      div[data-testid="stMetricLabel"] { opacity:.62; font-weight:600; }
+      .section-title { margin:22px 0 10px; color:#17212b; font-size:1rem; font-weight:700; }
+      .scenario-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:12px; }
+      .scenario-card { background:#fff; border:1px solid #dfe6ee; border-top:4px solid var(--accent);
+              border-radius:8px; padding:15px 16px 14px; box-shadow:0 1px 2px rgba(23,33,43,.04); }
+      .scenario-card.is-win { border-color:#0f766e; box-shadow:0 18px 38px -30px rgba(15,118,110,.75); }
+      .scenario-top { display:flex; justify-content:space-between; gap:10px; align-items:flex-start; margin-bottom:12px; }
+      .scenario-name { font-size:1rem; font-weight:700; color:#17212b; }
+      .win-badge { background:#dff7ee; color:#0f766e; border-radius:6px; padding:2px 7px;
+              font-size:.7rem; font-weight:700; white-space:nowrap; }
+      .scenario-value { font-size:1.45rem; line-height:1.1; color:#17212b; font-weight:700; margin-bottom:3px; }
+      .scenario-label { font-size:.76rem; color:#667085; margin-bottom:12px; }
+      .metric-list { display:grid; gap:8px; border-top:1px solid #edf1f5; padding-top:10px; }
+      .metric-row { display:flex; justify-content:space-between; gap:12px; font-size:.88rem; }
+      .metric-row span:first-child { color:#667085; }
+      .metric-row span:last-child { color:#17212b; font-weight:700; text-align:right; }
 
       /* ---- Tabs / sidebar polish ---- */
-      .stTabs [data-baseweb="tab"] { font-weight:600; }
-      section[data-testid="stSidebar"] { background:#fff; border-right:1px solid #e6edf5; }
-      section[data-testid="stSidebar"] h2 { font-size:1.05rem; }
-      .side-kicker { font-size:.72rem; font-weight:700; letter-spacing:0;
-                     text-transform:uppercase; color:#94a3b8; margin: 2px 0 -4px 0; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+      .stTabs [data-baseweb="tab"] { font-weight:600; color:#475467; padding-top:8px; padding-bottom:8px; }
+      .stTabs [aria-selected="true"] { color:#0f766e; }
+      section[data-testid="stSidebar"] { background:#ffffff; border-right:1px solid #dfe6ee; }
+      section[data-testid="stSidebar"] h2 { font-size:1.02rem; margin-top:.15rem; }
+      section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap:.72rem; }
+      .side-kicker { font-size:.72rem; font-weight:700; letter-spacing:0; text-transform:uppercase;
+                     color:#0f766e; margin: 2px 0 -4px 0; }
+      .side-summary { background:#f3f6f8; border:1px solid #dfe6ee; border-radius:8px;
+                      padding:9px 10px; color:#475467; font-size:.82rem; line-height:1.35; }
+      div[data-testid="stExpander"] { border-color:#dfe6ee; border-radius:8px; background:#fff; }
+      div[data-testid="stButton"] button { border-radius:8px; font-weight:700; background:#0f766e;
+              border-color:#0f766e; color:#fff; }
+      div[data-testid="stButton"] button:hover { background:#0b5f55; border-color:#0b5f55; color:#fff; }
 
-st.markdown(
-    """
-    <div class="hero">
-      <h1>🏠 Huis &amp; Hypotheek</h1>
-      <p>Vergelijk hypotheekscenario's op basis van jouw woning, eigen geld en looptijd.
-         Je ziet direct welke keuze financieel het sterkst is, inclusief renteaftrek,
-         eigenwoningforfait, NHG, box 3 en het rendement op geld dat je niet in de woning stopt.</p>
-      <div>
-        <span class="pill">Annuïteit &amp; lineair</span>
-        <span class="pill">Renteaftrek</span>
-        <span class="pill">Eigenwoningforfait</span>
-        <span class="pill">NHG</span>
-        <span class="pill">Box 3</span>
-      </div>
-    </div>
+      @media (max-width: 900px) {
+        .hero, .reco { grid-template-columns:1fr; }
+        .hero-facts, .reco-stats { grid-template-columns:1fr; }
+      }
+    </style>
     """,
     unsafe_allow_html=True,
 )
@@ -270,6 +278,13 @@ def style_fig(fig: go.Figure, height: int = 380, ytitle: str = "€", money_y: b
     return fig
 
 
+DEFAULTS = [
+    dict(name="Annuïteit", down=0, typ="annuity"),
+    dict(name="Lineair", down=0, typ="linear"),
+    dict(name="Meer eigen geld", down=50_000, typ="annuity"),
+]
+
+
 # --------------------------------------------------------------------------- #
 # Sidebar — all shared inputs, split into Basics and Advanced
 # --------------------------------------------------------------------------- #
@@ -297,12 +312,12 @@ with st.sidebar:
     st.markdown('<div class="side-kicker">Verfijnen</div>', unsafe_allow_html=True)
     st.caption("De standaardwaarden zijn gebaseerd op Nederlandse uitgangspunten voor 2025.")
 
-    with st.expander("🏦 Hypotheekgegevens"):
+    with st.expander("Hypotheekgegevens"):
         term = st.slider("Looptijd hypotheek in jaren", 5, 30, 30)
         fixed = st.selectbox("Rentevaste periode in jaren", [1, 5, 10, 20, 30], index=2)
         nhg = st.checkbox("NHG gebruiken", value=True)
 
-    with st.expander("📈 Geld buiten de woning"):
+    with st.expander("Geld buiten de woning"):
         st.caption("Geld dat een scenario niet in de woning stopt, groeit hier door. Kosten en box 3 worden meegenomen.")
         vehicle = st.radio(
             "Resterend geld gaat naar:",
@@ -316,12 +331,12 @@ with st.sidebar:
         fee = st.number_input("Beleggingskosten % per jaar", 0.0, 5.0, 0.3, 0.05,
                               help="Jaarlijkse kosten van de portefeuille, bijvoorbeeld fonds- of ETF-kosten.") / 100
 
-    with st.expander("🧾 Aankoop- en verkoopkosten"):
+    with st.expander("Aankoop- en verkoopkosten"):
         other = st.number_input("Overige aankoopkosten (notaris, taxatie, advies)",
                                 0, 50_000, 4_000, 250)
         sell = st.number_input("Verkoopkosten % (makelaar e.d.)", 0.0, 10.0, 1.5, 0.1) / 100
 
-    with st.expander("🇳🇱 Belastinginstellingen (2025)"):
+    with st.expander("Belastinginstellingen (2025)"):
         st.caption("Pas deze bedragen aan wanneer regels of percentages veranderen.")
         st.markdown("**Box 1 — eigen woning**")
         ewf_rate = st.number_input("Eigenwoningforfait %", 0.0, 2.0, 0.35, 0.01) / 100
@@ -337,66 +352,46 @@ with st.sidebar:
         b3_inv = st.number_input("Fictief rendement beleggingen %", 0.0, 15.0, 5.88, 0.1) / 100
         b3_allow = st.number_input("Heffingsvrij vermogen (alleenstaand)", 0, 200_000, 57_684, 1_000)
 
-# Shared inputs are now collected into a snapshot below (with the scenarios) and
-# the model objects are rebuilt from the *committed* snapshot, so nothing heavy
-# runs until the user clicks Calculate.
+    eff_horizon = min(horizon, term)
+    if horizon > term:
+        st.warning(f"De periode tot verkoop ({horizon} jaar) is beperkt tot de hypotheeklooptijd ({term} jaar).")
 
-# --------------------------------------------------------------------------- #
-# Scenarios — only what differs between the cases you compare
-# --------------------------------------------------------------------------- #
-DEFAULTS = [
-    dict(name="Annuïteit", down=0, typ="annuity"),
-    dict(name="Lineair", down=0, typ="linear"),
-    dict(name="Meer eigen geld", down=50_000, typ="annuity"),
-]
-
-eff_horizon = min(horizon, term)
-
-st.subheader("⚖️ Scenario's vergelijken")
-top = st.columns([3, 2])
-with top[0]:
-    st.caption("De basisgegevens staan links. Per scenario kies je alleen het **hypotheektype** "
-               "en hoeveel **eigen geld** je inbrengt. Scenario B gebruikt automatisch hetzelfde eigen geld als scenario A.")
-with top[1]:
+    st.divider()
+    st.markdown('<div class="side-kicker">Scenario&apos;s</div>', unsafe_allow_html=True)
+    st.header("Scenario's")
+    st.caption("Kies per scenario de hypotheekvorm en de eigen inbreng.")
     n_scenarios = st.radio("Aantal scenario's", [1, 2, 3], index=2, horizontal=True,
-                           label_visibility="collapsed")
-
-if horizon > term:
-    st.warning(f"De periode tot verkoop ({horizon} jaar) is beperkt tot de looptijd van de hypotheek ({term} jaar).")
-
-live_scenarios: list[tuple[str, str, float]] = []
-with st.container(border=True):
-    tabs = st.tabs([f"Scenario {chr(65 + i)} — {DEFAULTS[i]['name']}" for i in range(n_scenarios)])
+                           label_visibility="collapsed", key="n_scenarios")
+    live_scenarios: list[tuple[str, str, float]] = []
     ab_down = 0.0
     for i in range(n_scenarios):
         d = DEFAULTS[i]
-        with tabs[i]:
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                name = st.text_input("Naam scenario", d["name"], key=f"name{i}")
-            with c2:
-                mtype = st.selectbox("Hypotheekvorm", list(TYPES), index=list(TYPES).index(d["typ"]),
-                                     format_func=lambda k: TYPES[k], key=f"type{i}")
-            with c3:
-                if i == 1:  # Scenario B follows Scenario A's cash automatically.
-                    down = ab_down
-                    st.number_input("Eigen geld inbrengen", value=int(ab_down), disabled=True)
-                    st.caption("Gelijk aan scenario A.")
-                else:
-                    down = st.number_input(
-                        "Eigen geld inbrengen", 0, int(price), d["down"], 5_000,
-                        key=f"down{i}", help="Je eigen geld. De hypotheek is de koopsom minus dit bedrag.")
-                    if i == 0:
-                        ab_down = float(down)
-
+        with st.expander(f"Scenario {chr(65 + i)} · {d['name']}", expanded=i == 0):
+            name = st.text_input("Naam scenario", d["name"], key=f"name{i}")
+            mtype = st.selectbox("Hypotheekvorm", list(TYPES), index=list(TYPES).index(d["typ"]),
+                                 format_func=lambda k: TYPES[k], key=f"type{i}")
+            if i == 1:  # Scenario B follows Scenario A's cash automatically.
+                down = ab_down
+                st.number_input("Eigen geld inbrengen", value=int(ab_down), disabled=True, key="down_locked1")
+                st.caption("Gelijk aan scenario A.")
+            else:
+                down = st.number_input(
+                    "Eigen geld inbrengen", 0, int(price), d["down"], 5_000,
+                    key=f"down{i}", help="Je eigen geld. De hypotheek is de koopsom minus dit bedrag.")
+                if i == 0:
+                    ab_down = float(down)
             loan = max(0.0, price - down)
-            st.caption(
-                f"→ **{name}**: eigen geld **{euro(down)}**  ·  hypotheek **{euro(loan)}**  ·  "
-                f"vorm **{TYPES[mtype]}**  ·  verkoop na **{eff_horizon} jaar**  ·  "
-                f"geld buiten de woning: **{CASH_VEHICLES[vehicle]}**"
+            st.markdown(
+                f'<div class="side-summary">Eigen geld <b>{euro(down)}</b><br>'
+                f'Hypotheek <b>{euro(loan)}</b><br>'
+                f'{TYPES[mtype]} · verkoop na {eff_horizon} jaar</div>',
+                unsafe_allow_html=True,
             )
 
             live_scenarios.append((name, mtype, float(down)))
+
+# Shared inputs are collected into a snapshot below. The model only reruns when
+# the user clicks Bereken, not on every widget change.
 
 # --------------------------------------------------------------------------- #
 # Calculate gate — commit inputs only when the button is clicked, so the heavy
@@ -412,7 +407,7 @@ live = dict(
     scenarios=live_scenarios,
 )
 
-calc_clicked = calc_slot.button("📊 Bereken", type="primary", use_container_width=True,
+calc_clicked = calc_slot.button("Bereken", type="primary", use_container_width=True,
                                 help="Pas je invoer toe en bereken de resultaten opnieuw.")
 if calc_clicked or "committed" not in st.session_state:
     st.session_state.committed = live
@@ -436,6 +431,25 @@ scenarios, results, budget, ref_cash = compute_core(snap_json)
 pairs = list(zip(scenarios, results))
 ranked = sorted(pairs, key=lambda sr: sr[1].net_result, reverse=True)
 winner_name = ranked[0][1].name
+
+
+def build_hero_html() -> str:
+    return f"""
+    <div class="hero">
+      <div>
+        <div class="brand-kicker">Hypotheekvergelijker</div>
+        <h1>Welke hypotheekkeuze levert jou het meeste op?</h1>
+        <p>Vergelijk eigen inbreng, hypotheekvorm en geld buiten de woning in een Nederlands rekenmodel
+           met renteaftrek, eigenwoningforfait, NHG en box 3.</p>
+      </div>
+      <div class="hero-facts">
+        <div class="hero-fact"><div class="label">Koopsom</div><div class="value">{euro(price)}</div></div>
+        <div class="hero-fact"><div class="label">Periode</div><div class="value">{eff_horizon} jaar</div></div>
+        <div class="hero-fact"><div class="label">Scenario's</div><div class="value">{len(results)}</div></div>
+      </div>
+    </div>
+    """
+
 
 # --------------------------------------------------------------------------- #
 # THE RECOMMENDATION — primary output
@@ -462,12 +476,13 @@ def reason_line(ws, wr, rs, rr) -> str:
 
 def build_reco_html() -> str:
     ws, wr = ranked[0]
+    winner = escape(ws.name)
     profit_sign = "winst" if wr.net_result >= 0 else "verlies"
 
     if len(ranked) == 1:
         verdict = ("een positief resultaat" if wr.net_result > 0 else
                    "een negatief resultaat. Kijk nog eens naar koopsom, looptijd of rente")
-        title = f"Na {ws.horizon_years} jaar geeft <b>{ws.name}</b> {verdict}"
+        title = f"Na {ws.horizon_years} jaar geeft <b>{winner}</b> {verdict}"
         sub = (f"Bij verkoop houd je naar schatting <b>{euro(wr.net_worth_end)}</b> over: een netto {profit_sign} van "
                f"{euro(wr.net_result)}, oftewel {pct(wr.annual_return)} per jaar.")
         stats = [
@@ -478,19 +493,20 @@ def build_reco_html() -> str:
         ]
     else:
         rs, rr = ranked[1]
+        runner = escape(rr.name)
         margin = wr.net_result - rr.net_result
         if margin < 2_500:
-            title = f"Het ligt dicht bij elkaar: <b>{ws.name}</b> komt net bovenaan"
-            sub = (f"<b>{ws.name}</b> is over {ws.horizon_years} jaar maar {euro(margin)} beter dan "
-                   f"<b>{rr.name}</b>. Betalingszekerheid en flexibiliteit mogen hier dus zwaar meewegen. "
+            title = f"Het ligt dicht bij elkaar: <b>{winner}</b> komt net bovenaan"
+            sub = (f"<b>{winner}</b> is over {ws.horizon_years} jaar maar {euro(margin)} beter dan "
+                   f"<b>{runner}</b>. Betalingszekerheid en flexibiliteit mogen hier dus zwaar meewegen. "
                    + reason_line(ws, wr, rs, rr))
         else:
-            title = f"Op basis van je invoer is <b>{ws.name}</b> financieel het sterkst"
+            title = f"Op basis van je invoer is <b>{winner}</b> financieel het sterkst"
             sub = reason_line(ws, wr, rs, rr)
         stats = [
             ("Over bij verkoop", euro(wr.net_worth_end), "overwaarde + pot buiten woning"),
             ("Netto resultaat", euro(wr.net_result), f"{pct(wr.annual_return)} per jaar"),
-            (f"Voorsprong op {rr.name}", f"+{euro(margin)}", "extra netto resultaat"),
+            (f"Voorsprong op {runner}", f"+{euro(margin)}", "extra netto resultaat"),
             ("Maandlast start", euro(wr.monthly_payment_start), "eerste maand"),
         ]
 
@@ -501,55 +517,79 @@ def build_reco_html() -> str:
     )
     return (
         '<div class="reco">'
+        '<div class="reco-copy">'
         '<span class="reco-badge">Advies op basis van je invoer</span>'
         f'<div class="reco-title">{title}</div>'
         f'<div class="reco-sub">{sub}</div>'
+        '</div>'
         f'<div class="reco-stats">{chips}</div>'
         '</div>'
     )
 
 
-st.markdown(build_reco_html(), unsafe_allow_html=True)
+def build_comparison_note_html() -> str:
+    if alt.invests:
+        body = (
+            f"Elk scenario krijgt dezelfde {euro(ref_cash)} eigen middelen en hetzelfde maandbudget van "
+            f"{euro(budget)}. Geld dat niet in de woning gaat, gaat naar "
+            f"{CASH_VEHICLES[vehicle].lower()} na kosten en box 3. Rangschikking op netto resultaat."
+        )
+    else:
+        body = ("Geld buiten de woning wordt niet meegenomen. Elk scenario wordt beoordeeld op de eigen inbreng "
+                "en maandlast. Rangschikking op netto resultaat.")
+    return f'<div class="compare-note">{escape(body)}</div>'
 
-if alt.invests:
-    st.caption(
-        f"Eerlijke vergelijking: elk scenario krijgt dezelfde **{euro(ref_cash)}** eigen middelen en "
-        f"hetzelfde maandbudget van **{euro(budget)}**. Geld dat niet in de woning gaat, gaat naar "
-        f"**{CASH_VEHICLES[vehicle].lower()}** na kosten en box 3. Rangschikking op netto resultaat."
-    )
-else:
-    st.caption("Geld buiten de woning wordt niet meegenomen. Elk scenario wordt beoordeeld op de eigen inbreng "
-               "en maandlast. Rangschikking op netto resultaat.")
+
+def build_scenario_cards_html() -> str:
+    cards = []
+    for i, (s, r) in enumerate(pairs):
+        accent = ACCENTS[i % len(ACCENTS)]
+        is_win = r.name == winner_name
+        rows = [
+            ("Vermogen bij verkoop", euro(r.net_worth_end)),
+            ("Maandlast start", euro(r.monthly_payment_start)),
+            ("Eigen geld", euro(s.down_payment)),
+        ]
+        if alt.invests:
+            rows.append(("Pot buiten woning", euro(r.side_pot_end)))
+        else:
+            rows.append(("Hypotheek", euro(s.loan_amount)))
+        row_html = "".join(
+            f'<div class="metric-row"><span>{label}</span><span>{value}</span></div>'
+            for label, value in rows
+        )
+        badge = '<span class="win-badge">Beste keuze</span>' if is_win else ""
+        classes = "scenario-card is-win" if is_win else "scenario-card"
+        cards.append(
+            f'<div class="{classes}" style="--accent:{accent}">'
+            '<div class="scenario-top">'
+            f'<div class="scenario-name">{escape(r.name)}</div>{badge}'
+            '</div>'
+            f'<div class="scenario-value">{euro(r.net_result)}</div>'
+            f'<div class="scenario-label">Netto resultaat · {pct(r.annual_return)} per jaar</div>'
+            f'<div class="metric-list">{row_html}</div>'
+            '</div>'
+        )
+    return '<div class="scenario-grid">' + "".join(cards) + '</div>'
+
+
+st.markdown(build_hero_html(), unsafe_allow_html=True)
+st.markdown(build_reco_html(), unsafe_allow_html=True)
+st.markdown(build_comparison_note_html(), unsafe_allow_html=True)
 
 # --------------------------------------------------------------------------- #
 # KPI cards — winner highlighted
 # --------------------------------------------------------------------------- #
-st.markdown("#### In een oogopslag")
-cols = st.columns(len(results))
-for i, (col, s, r) in enumerate(zip(cols, scenarios, results)):
-    accent = ACCENTS[i % len(ACCENTS)]
-    is_win = r.name == winner_name
-    badge = '<span class="sc-win">Beste keuze</span>' if is_win else ""
-    with col:
-        st.markdown(f'<div class="sc-head" style="border-color:{accent}">{r.name}{badge}</div>',
-                    unsafe_allow_html=True)
-        st.metric("Vermogen bij verkoop", euro(r.net_worth_end),
-                  help="Wat je overhoudt: overwaarde na verkoopkosten en resterende hypotheek, plus het geld buiten de woning.")
-        st.metric("Netto resultaat", euro(r.net_result), delta=f"{pct(r.annual_return)} / jaar",
-                  help="Vermogen bij verkoop min alles wat je zelf hebt ingelegd.")
-        if alt.invests:
-            st.metric("Pot buiten woning", euro(r.side_pot_end),
-                      help=f"Eigen geld dat niet is ingelegd ({euro(r.invested_cash_start)}) plus vrij maandbudget "
-                           f"({euro(r.spare_invested_total)}), gegroeid na kosten en box 3.")
-        st.metric("Maandlast start", euro(r.monthly_payment_start))
+st.markdown('<div class="section-title">Scenario-overzicht</div>', unsafe_allow_html=True)
+st.markdown(build_scenario_cards_html(), unsafe_allow_html=True)
 
 # --------------------------------------------------------------------------- #
 # Detailed analysis — everything in tabs
 # --------------------------------------------------------------------------- #
-st.markdown("#### Verdieping")
+st.markdown('<div class="section-title">Verdieping</div>', unsafe_allow_html=True)
 t_optim, t_time, t_wealth, t_profit, t_bank, t_table, t_year = st.tabs([
-    "💡 Eigen geld", "📈 Vermogen door de tijd", "🧱 Opbouw vermogen",
-    "💸 Waar resultaat vandaan komt", "🏦 Naar de bank", "📋 Vergelijking", "🔎 Jaaroverzicht",
+    "Eigen geld", "Vermogen door de tijd", "Opbouw vermogen",
+    "Resultaat verklaard", "Naar de bank", "Vergelijking", "Jaaroverzicht",
 ])
 
 # --- Optimal down payment sweep --- #
