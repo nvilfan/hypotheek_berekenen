@@ -422,10 +422,108 @@ for i, (col, s, r) in enumerate(zip(cols, scenarios, results)):
 # Detailed analysis — everything in tabs
 # --------------------------------------------------------------------------- #
 st.markdown("#### Detailed analysis")
-t_time, t_wealth, t_profit, t_bank, t_table, t_year = st.tabs([
-    "📈 Net worth over time", "🧱 Wealth breakdown", "💸 Where profit comes from",
-    "🏦 Paid to the bank", "📋 Full comparison", "🔎 Yearly detail",
+t_optim, t_time, t_wealth, t_profit, t_bank, t_table, t_year = st.tabs([
+    "💡 Optimal own money", "📈 Net worth over time", "🧱 Wealth breakdown",
+    "💸 Where profit comes from", "🏦 Paid to the bank", "📋 Full comparison", "🔎 Yearly detail",
 ])
+
+# --- Optimal down payment sweep --- #
+with t_optim:
+    st.caption(
+        "**How much of your own money should go into the house at the start?** Holding your "
+        "total cash and monthly budget fixed, this sweeps the down payment — money *not* put "
+        "into the house is invested instead. The peak of the curve is the amount that leaves "
+        "you richest after the holding period."
+    )
+    oc1, oc2, oc3 = st.columns([2, 2, 3])
+    with oc1:
+        cash_avail = st.number_input(
+            "Total cash you could put in", 0, int(price), min(100_000, int(price)), 5_000,
+            help="The X-axis runs from €0 (put nothing in, invest it all) to this amount "
+                 "(put everything into the house).")
+    with oc2:
+        sweep_type = st.selectbox("Mortgage type", list(TYPES),
+                                  format_func=lambda k: TYPES[k], key="sweep_type")
+    with oc3:
+        metric = st.radio("Optimise for",
+                          ["Net worth at sale", "Net result (profit)", "Annualised return"],
+                          horizontal=True)
+
+    if not alt.invests:
+        st.info("This view compares putting cash **into the house** vs **investing it**. "
+                "The spare-cash vehicle is set to *Nowhere* — pick a vehicle in the sidebar "
+                "('📈 Spare cash') for a meaningful curve; otherwise un-invested cash isn't counted.")
+
+    cap = min(float(cash_avail), float(price))
+    # Fixed monthly budget = the full-mortgage (d=0) first-month payment, so the monthly
+    # spare invested is always >= 0 across the whole sweep — a fair, constant commitment.
+    base0 = ScenarioInput(
+        name="base", house_price=float(price), down_payment=0.0, interest_rate=rate,
+        mortgage_type=sweep_type, mortgage_term_years=term, fixed_period_years=fixed,
+        horizon_years=eff_horizon, appreciation_rate=appr, gross_income=float(income),
+        other_purchase_costs=float(other), selling_cost_rate=sell, nhg=nhg)
+    sweep_budget = reference_budget([base0])
+
+    N = 41
+    is_pct = metric == "Annualised return"
+    xs: list[float] = []
+    ys: list[float] = []
+    for k in range(N):
+        d = cap * k / (N - 1) if N > 1 else 0.0
+        s = ScenarioInput(
+            name="s", house_price=float(price), down_payment=d, interest_rate=rate,
+            mortgage_type=sweep_type, mortgage_term_years=term, fixed_period_years=fixed,
+            horizon_years=eff_horizon, appreciation_rate=appr, gross_income=float(income),
+            other_purchase_costs=float(other), selling_cost_rate=sell, nhg=nhg)
+        r = run_scenario(s, tax, alt=alt, invested_cash=cap - d, budget_monthly=sweep_budget)
+        xs.append(d)
+        ys.append({
+            "Net worth at sale": r.net_worth_end,
+            "Net result (profit)": r.net_result,
+            "Annualised return": r.annual_return,
+        }[metric])
+
+    best_i = max(range(N), key=lambda i: ys[i])
+    best_d, best_y = xs[best_i], ys[best_i]
+    worst_y = min(ys)
+    fmt_best = pct(best_y) if is_pct else euro(best_y)
+
+    fig5 = go.Figure()
+    fig5.add_trace(go.Scatter(
+        x=xs, y=ys, mode="lines", line=dict(width=3, color=ACCENTS[0]), name=metric,
+        hovertemplate="Own money €%{x:,.0f}<br>" + metric + ": %{customdata}<extra></extra>",
+        customdata=[pct(v) if is_pct else euro(v) for v in ys]))
+    fig5.add_trace(go.Scatter(
+        x=[best_d], y=[best_y], mode="markers+text",
+        marker=dict(size=13, color=GREEN, line=dict(width=2, color="#fff")),
+        text=[f"  optimum: {euro(best_d)}"], textposition="middle right",
+        textfont=dict(color="#15803d", size=12), showlegend=False))
+    fig5.update_layout(xaxis_title="Own money put in at the start (eigen inbreng)", showlegend=False)
+    style_fig(fig5, 430, metric, money_y=not is_pct)
+    fig5.update_xaxes(tickprefix="€", tickformat="~s")
+    if is_pct:
+        fig5.update_yaxes(tickprefix="", tickformat=".1%")
+    st.plotly_chart(fig5, width="stretch")
+
+    if cap <= 0:
+        st.info("Set a 'Total cash you could put in' above €0 to see the curve.")
+    else:
+        if best_d >= cap * 0.95:
+            why = ("Putting in **as much as you can** wins — your mortgage costs more (after tax "
+                   "relief) than your spare cash earns after fees & box 3, so every extra euro in "
+                   "the house beats investing it.")
+        elif best_d <= cap * 0.05:
+            why = ("Keeping your cash **invested** wins — the vehicle earns more after fees & box 3 "
+                   "than the mortgage costs after tax relief, so a minimal down payment is best.")
+        else:
+            why = ("There's a **sweet spot in the middle** — past it, box 3 tax on the growing pot "
+                   "and the lost interest deduction tip the balance back toward the house.")
+        st.success(f"**Optimum: put in {euro(best_d)}** of your {euro(cap)} → "
+                   f"{metric.lower()} of **{fmt_best}**.  {why}")
+        if is_pct:
+            st.caption("Note: *annualised return* usually peaks at a low down payment (more leverage), "
+                       "while *net worth* peaks where your absolute wealth is highest — "
+                       "switch the metric above to compare.")
 
 # --- Net worth over time --- #
 with t_time:
