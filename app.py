@@ -239,9 +239,12 @@ st.markdown(
       .side-summary { background:#f3f6f8; border:1px solid #dfe6ee; border-radius:8px;
                       padding:9px 10px; color:#475467; font-size:.82rem; line-height:1.35; }
       div[data-testid="stExpander"] { border-color:#dfe6ee; border-radius:8px; background:#fff; }
-      div[data-testid="stButton"] button { border-radius:8px; font-weight:700; background:#0f766e;
-              border-color:#0f766e; color:#fff; }
-      div[data-testid="stButton"] button:hover { background:#0b5f55; border-color:#0b5f55; color:#fff; }
+      div[data-testid="stButton"] button { border-radius:8px; font-weight:700;
+              background:linear-gradient(135deg,#1e3a8a 0%, #2563eb 58%, #4f46e5 100%);
+              border-color:#2563eb; color:#fff; }
+      div[data-testid="stButton"] button:hover {
+              background:linear-gradient(135deg,#172e6e 0%, #1f57c9 58%, #4339c4 100%);
+              border-color:#1f57c9; color:#fff; }
 
       @media (max-width: 900px) {
         .hero { grid-template-columns:1fr; }
@@ -307,7 +310,7 @@ with st.sidebar:
                              help="Bepaalt je belastingschijf en daarmee de waarde van de hypotheekrenteaftrek.")
 
     cash_pool = st.number_input(
-        "Eigen geld (totaal beschikbaar)", 0, int(price), 50_000, 5_000,
+        "Eigen geld (totaal beschikbaar)", 0, 2_000_000, 50_000, 5_000, key="cash_pool",
         help="Al je eigen geld bij aankoop. Per scenario kies je hoeveel hiervan als eigen "
              "inbreng in de woning gaat; de rest is vrij geld.")
     vehicle = st.radio(
@@ -567,10 +570,10 @@ def build_scenario_cards_html() -> str:
             ("Vermogen bij verkoop", euro(r.net_worth_end)),
             ("Maandlast start", euro(r.monthly_payment_start)),
             ("Eigen inbreng in woning", euro(s.down_payment)),
-            ("Hypotheek", euro(s.loan_amount)),
+            ("Resterende hypotheek", euro(r.remaining_balance)),
         ]
         if alt.invests:
-            rows.append(("Vrij geld bij verkoop", euro(r.side_pot_end)))
+            rows.append(("Spaar-/beleggingspot bij verkoop", euro(r.side_pot_end)))
         row_html = "".join(
             f'<div class="metric-row"><span>{label}</span><span>{value}</span></div>'
             for label, value in rows
@@ -769,7 +772,7 @@ with t_profit:
     st.caption("Aflossen is geen winst: je zet geld om in overwaarde. Het netto resultaat komt vooral uit "
                "waardestijging, rente, aankoop- en verkoopkosten, belastingvoordeel en rendement op vrij geld.")
     pcols = st.columns(len(results))
-    for col, s, r in zip(pcols, scenarios, results):
+    for i, (col, s, r) in enumerate(zip(pcols, scenarios, results)):
         appreciation = r.home_value_end - s.house_price
         invest_gain = r.side_pot_end - r.invested_cash_start - r.spare_invested_total
         labels = ["Waarde-<br>stijging", "Betaalde<br>rente", "Aankoop-<br>kosten",
@@ -788,7 +791,7 @@ with t_profit:
                 totals={"marker": {"color": ACCENTS[0]}},
             ))
             wf.update_xaxes(tickfont=dict(size=10))
-            st.plotly_chart(style_fig(wf, 360), width="stretch")
+            st.plotly_chart(style_fig(wf, 360), width="stretch", key=f"wf_{i}")
 
 # --- Paid to the bank --- #
 with t_bank:
