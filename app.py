@@ -83,7 +83,8 @@ def compute_core(snap_json: str):
     C = json.loads(snap_json)
     tax, alt, scenarios, _ = build_models(C)
     budget = reference_budget(scenarios)
-    ref_cash = reference_cash(scenarios)
+    scenario_cash = reference_cash(scenarios)
+    ref_cash = max(float(C.get("cash_pool", scenario_cash)), scenario_cash)
     results = [
         run_scenario(s, tax, alt=alt, invested_cash=ref_cash - s.down_payment,
                      budget_monthly=budget)
@@ -189,20 +190,21 @@ st.markdown(
       .hero-fact .value { color:#17212b; font-size:.98rem; font-weight:700; margin-top:2px; }
 
       /* ---- Recommendation card (the primary output) ---- */
-      .reco { display:grid; grid-template-columns:minmax(0, 1.2fr) minmax(330px, .8fr);
-              gap:24px; background:#17212b; color:#fff; border-radius:8px; padding:26px 28px;
-              margin: 0 0 12px; box-shadow:0 22px 45px -32px rgba(23,33,43,.9); }
-      .reco-badge { display:inline-block; background:#f2c94c; color:#17212b;
+      .reco { background:linear-gradient(135deg,#1e3a8a 0%, #2563eb 58%, #4f46e5 100%);
+              color:#fff; border-radius:8px; padding:24px 28px; margin:0 0 12px;
+              box-shadow:0 18px 40px -24px rgba(37,99,235,.7); }
+      .reco-badge { display:inline-block; background:rgba(255,255,255,.18); color:#fff;
               font-weight:700; font-size:.78rem; padding:5px 10px; border-radius:6px; }
-      .reco-title { font-family:'IBM Plex Serif', Georgia, serif; font-size:1.95rem;
-              font-weight:700; margin: 14px 0 6px; line-height:1.16; }
+      .reco-title { font-family:'IBM Plex Serif', Georgia, serif; font-size:1.72rem;
+              font-weight:700; margin: 14px 0 4px; line-height:1.2; max-width:900px; }
       .reco-title b { color:#fff; }
-      .reco-sub { font-size:1rem; opacity:.9; margin: 8px 0 0; max-width:720px; line-height:1.55; }
-      .reco-stats { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; }
-      .reco-stat { background:#fff; color:#17212b; border-radius:8px; padding:13px 14px; min-width:0; }
-      .reco-stat .l { font-size:.73rem; color:#667085; }
+      .reco-sub { font-size:1rem; color:rgba(255,255,255,.92); margin: 8px 0 18px; max-width:880px; line-height:1.55; }
+      .reco-stats { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:10px; }
+      .reco-stat { background:rgba(255,255,255,.13); color:#fff; border:1px solid rgba(255,255,255,.2);
+              border-radius:8px; padding:13px 14px; min-width:0; }
+      .reco-stat .l { font-size:.73rem; color:rgba(255,255,255,.78); }
       .reco-stat .v { font-size:1.24rem; font-weight:700; margin-top:3px; }
-      .reco-stat .d { font-size:.78rem; color:#667085; margin-top:2px; }
+      .reco-stat .d { font-size:.78rem; color:rgba(255,255,255,.82); margin-top:2px; }
 
       .compare-note { background:#fff; border:1px solid #dfe6ee; border-radius:8px;
               padding:12px 14px; color:#475467; font-size:.92rem; margin-bottom:18px; }
@@ -212,9 +214,11 @@ st.markdown(
       .scenario-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:12px; }
       .scenario-card { background:#fff; border:1px solid #dfe6ee; border-top:4px solid var(--accent);
               border-radius:8px; padding:15px 16px 14px; box-shadow:0 1px 2px rgba(23,33,43,.04); }
-      .scenario-card.is-win { border-color:#0f766e; box-shadow:0 18px 38px -30px rgba(15,118,110,.75); }
+      .scenario-card.is-win { background:#fbfffd; border-color:#dfe6ee; border-top-color:var(--accent);
+              box-shadow:0 18px 38px -30px rgba(15,118,110,.75); }
       .scenario-top { display:flex; justify-content:space-between; gap:10px; align-items:flex-start; margin-bottom:12px; }
       .scenario-name { font-size:1rem; font-weight:700; color:#17212b; }
+      .scenario-type { font-size:.78rem; font-weight:600; color:var(--accent); margin-top:1px; }
       .win-badge { background:#dff7ee; color:#0f766e; border-radius:6px; padding:2px 7px;
               font-size:.7rem; font-weight:700; white-space:nowrap; }
       .scenario-value { font-size:1.45rem; line-height:1.1; color:#17212b; font-weight:700; margin-bottom:3px; }
@@ -240,7 +244,7 @@ st.markdown(
       div[data-testid="stButton"] button:hover { background:#0b5f55; border-color:#0b5f55; color:#fff; }
 
       @media (max-width: 900px) {
-        .hero, .reco { grid-template-columns:1fr; }
+        .hero { grid-template-columns:1fr; }
         .hero-facts, .reco-stats { grid-template-columns:1fr; }
       }
     </style>
@@ -301,12 +305,64 @@ with st.sidebar:
                             help="De aankoopprijs van de woning die je wilt vergelijken.")
     income = st.number_input("Bruto jaarinkomen", 0, 1_000_000, 60_000, 1_000,
                              help="Bepaalt je belastingschijf en daarmee de waarde van de hypotheekrenteaftrek.")
+
+    cash_pool = st.number_input(
+        "Eigen geld (totaal beschikbaar)", 0, int(price), 50_000, 5_000,
+        help="Al je eigen geld bij aankoop. Per scenario kies je hoeveel hiervan als eigen "
+             "inbreng in de woning gaat; de rest is vrij geld.")
+    vehicle = st.radio(
+        "Vrij geld gaat naar:",
+        options=list(CASH_VEHICLES.keys()),
+        format_func=lambda k: CASH_VEHICLES[k],
+        index=0,
+        help="Eigen geld dat je niet in de woning stopt (vrij geld) wordt aan het begin belegd, "
+             "en het maandelijkse verschil in lasten komt er over de jaren bij. Groeit na kosten "
+             "en box 3. Rendementen stel je fijn bij onder ‘Verfijnen’.")
+
     horizon = st.slider("Aantal jaren tot verkoop", 1, 30, 5,
                         help="Hoe lang je de woning naar verwachting houdt. De vergelijking loopt over deze periode.")
     rate = st.number_input("Hypotheekrente %", 0.0, 15.0, 3.9, 0.05,
                            help="De jaarlijkse nominale hypotheekrente.") / 100
     appr = st.number_input("Verwachte waardestijging % per jaar", -10.0, 20.0, 3.0, 0.25,
                            help="De gemiddelde jaarlijkse waardestijging van de woning. Dit heeft veel invloed op de uitkomst.") / 100
+
+    st.divider()
+    st.header("Scenario's vergelijken")
+    st.caption("Kies per scenario de hypotheekvorm en de eigen inbreng. De rest van je "
+               "eigen geld blijft vrij geld.")
+    n_scenarios = st.radio("Aantal varianten", [1, 2, 3], index=2, horizontal=True,
+                           label_visibility="collapsed", key="n_scenarios")
+    cash_cap = int(min(int(price), int(cash_pool)))
+    live_scenarios: list[tuple[str, str, float]] = []
+    ab_down = 0.0
+    for i in range(n_scenarios):
+        d = DEFAULTS[i]
+        with st.expander(f"Scenario {chr(65 + i)} · {d['name']}", expanded=i == 0):
+            name = st.text_input("Naam scenario", d["name"], key=f"name{i}")
+            mtype = st.selectbox("Hypotheekvorm", list(TYPES), index=list(TYPES).index(d["typ"]),
+                                 format_func=lambda k: TYPES[k], key=f"type{i}")
+            if i == 1:  # Scenario B follows Scenario A's cash automatically.
+                down = ab_down
+                st.number_input("Eigen inbreng in de woning", value=int(ab_down), disabled=True, key="down_locked1")
+                st.caption("Gelijk aan scenario A.")
+            else:
+                down = st.number_input(
+                    "Eigen inbreng in de woning", 0, cash_cap, min(int(d["down"]), cash_cap), 5_000,
+                    key=f"down{i}",
+                    help="Hoeveel van je eigen geld in deze woning gaat. De hypotheek is de koopsom "
+                         "minus dit bedrag; wat je niet inbrengt, blijft vrij geld.")
+                if i == 0:
+                    ab_down = float(down)
+            loan = max(0.0, price - down)
+            vrij = max(0.0, cash_pool - down)
+            st.markdown(
+                f'<div class="side-summary">{TYPES[mtype]} · verkoop na {horizon} jaar<br>'
+                f'Eigen inbreng <b>{euro(down)}</b> · hypotheek <b>{euro(loan)}</b><br>'
+                f'Vrij geld <b>{euro(vrij)}</b> → {CASH_VEHICLES[vehicle].lower()}</div>',
+                unsafe_allow_html=True,
+            )
+
+            live_scenarios.append((name, mtype, float(down)))
 
     st.divider()
     st.markdown('<div class="side-kicker">Verfijnen</div>', unsafe_allow_html=True)
@@ -317,14 +373,9 @@ with st.sidebar:
         fixed = st.selectbox("Rentevaste periode in jaren", [1, 5, 10, 20, 30], index=2)
         nhg = st.checkbox("NHG gebruiken", value=True)
 
-    with st.expander("Geld buiten de woning"):
-        st.caption("Geld dat een scenario niet in de woning stopt, groeit hier door. Kosten en box 3 worden meegenomen.")
-        vehicle = st.radio(
-            "Resterend geld gaat naar:",
-            options=list(CASH_VEHICLES.keys()),
-            format_func=lambda k: CASH_VEHICLES[k],
-            index=0,
-        )
+    with st.expander("Rendement op vrij geld"):
+        st.caption("Verwacht rendement per bestemming van het vrije geld. De bestemming zelf "
+                   "kies je onder Basisgegevens (‘Vrij geld gaat naar’).")
         sav_rate = st.number_input("Spaarrente % per jaar", 0.0, 15.0, 2.25, 0.1) / 100
         dep_rate = st.number_input("Depositorente % per jaar", 0.0, 15.0, 3.0, 0.1) / 100
         inv_ret = st.number_input("Beleggingsrendement % per jaar", -10.0, 25.0, 6.0, 0.5) / 100
@@ -346,7 +397,7 @@ with st.sidebar:
         starters = st.checkbox("Startersvrijstelling overdrachtsbelasting", value=True)
         transfer = st.number_input("Overdrachtsbelasting zonder vrijstelling %", 0.0, 10.0, 2.0, 0.1) / 100
         nhg_rate = st.number_input("NHG-premie %", 0.0, 5.0, 0.6, 0.05) / 100
-        st.markdown("**Box 3 — vermogen buiten de woning**")
+        st.markdown("**Box 3 — vrij vermogen**")
         b3_rate = st.number_input("Belastingtarief box 3 %", 0.0, 60.0, 36.0, 0.5) / 100
         b3_save = st.number_input("Fictief rendement spaargeld/deposito %", 0.0, 15.0, 1.44, 0.1) / 100
         b3_inv = st.number_input("Fictief rendement beleggingen %", 0.0, 15.0, 5.88, 0.1) / 100
@@ -355,40 +406,6 @@ with st.sidebar:
     eff_horizon = min(horizon, term)
     if horizon > term:
         st.warning(f"De periode tot verkoop ({horizon} jaar) is beperkt tot de hypotheeklooptijd ({term} jaar).")
-
-    st.divider()
-    st.markdown('<div class="side-kicker">Scenario&apos;s</div>', unsafe_allow_html=True)
-    st.header("Scenario's")
-    st.caption("Kies per scenario de hypotheekvorm en de eigen inbreng.")
-    n_scenarios = st.radio("Aantal scenario's", [1, 2, 3], index=2, horizontal=True,
-                           label_visibility="collapsed", key="n_scenarios")
-    live_scenarios: list[tuple[str, str, float]] = []
-    ab_down = 0.0
-    for i in range(n_scenarios):
-        d = DEFAULTS[i]
-        with st.expander(f"Scenario {chr(65 + i)} · {d['name']}", expanded=i == 0):
-            name = st.text_input("Naam scenario", d["name"], key=f"name{i}")
-            mtype = st.selectbox("Hypotheekvorm", list(TYPES), index=list(TYPES).index(d["typ"]),
-                                 format_func=lambda k: TYPES[k], key=f"type{i}")
-            if i == 1:  # Scenario B follows Scenario A's cash automatically.
-                down = ab_down
-                st.number_input("Eigen geld inbrengen", value=int(ab_down), disabled=True, key="down_locked1")
-                st.caption("Gelijk aan scenario A.")
-            else:
-                down = st.number_input(
-                    "Eigen geld inbrengen", 0, int(price), d["down"], 5_000,
-                    key=f"down{i}", help="Je eigen geld. De hypotheek is de koopsom minus dit bedrag.")
-                if i == 0:
-                    ab_down = float(down)
-            loan = max(0.0, price - down)
-            st.markdown(
-                f'<div class="side-summary">Eigen geld <b>{euro(down)}</b><br>'
-                f'Hypotheek <b>{euro(loan)}</b><br>'
-                f'{TYPES[mtype]} · verkoop na {eff_horizon} jaar</div>',
-                unsafe_allow_html=True,
-            )
-
-            live_scenarios.append((name, mtype, float(down)))
 
 # Shared inputs are collected into a snapshot below. The model only reruns when
 # the user clicks Bereken, not on every widget change.
@@ -404,6 +421,7 @@ live = dict(
     other=int(other), sell=sell, ewf_rate=ewf_rate, max_ded=max_ded, hillen=hillen,
     starters=bool(starters), transfer=transfer, nhg_rate=nhg_rate, b3_rate=b3_rate,
     b3_save=b3_save, b3_inv=b3_inv, b3_allow=int(b3_allow),
+    cash_pool=int(cash_pool),
     scenarios=live_scenarios,
 )
 
@@ -439,7 +457,7 @@ def build_hero_html() -> str:
       <div>
         <div class="brand-kicker">Hypotheekvergelijker</div>
         <h1>Welke hypotheekkeuze levert jou het meeste op?</h1>
-        <p>Vergelijk eigen inbreng, hypotheekvorm en geld buiten de woning in een Nederlands rekenmodel
+        <p>Vergelijk eigen inbreng, hypotheekvorm en strategie voor vrij geld in een Nederlands rekenmodel
            met renteaftrek, eigenwoningforfait, NHG en box 3.</p>
       </div>
       <div class="hero-facts">
@@ -462,15 +480,15 @@ def reason_line(ws, wr, rs, rr) -> str:
         if dp_diff > 0:
             return (f"Meer eigen geld in de woning ({euro(ws.down_payment)} tegenover "
                     f"{euro(rs.down_payment)}) pakt hier het beste uit: je hypotheekrente van {pct(ws.interest_rate)} "
-                    f"is hoger dan het rendement van {pct(net_rate)} op geld buiten de woning, na kosten en box 3.")
-        return (f"Minder eigen geld in de woning en meer geld buiten de woning werkt hier beter: dat geld levert "
+                    f"is hoger dan het rendement van {pct(net_rate)} op vrij geld, na kosten en box 3.")
+        return (f"Minder eigen geld in de woning en meer vrij geld werkt hier beter: dat geld levert "
                 f"{pct(net_rate)} op na kosten en box 3, meer dan je hypotheekrente van {pct(ws.interest_rate)}.")
     if ws.mortgage_type != rs.mortgage_type:
         if ws.mortgage_type == "linear":
             return ("De lineaire hypotheek wint: je lost sneller af en betaalt minder rente. "
                     "De vergelijking houdt rekening met de hogere maandlasten in het begin.")
         return ("De annuïteitenhypotheek wint: de lagere maandlasten in het begin laten meer ruimte over "
-                "voor geld buiten de woning, wat hier gunstig uitpakt.")
+                "voor vrij geld, wat hier gunstig uitpakt.")
     return f"Dit scenario houdt na belasting, rente en kosten het meeste over na {ws.horizon_years} jaar."
 
 
@@ -486,7 +504,7 @@ def build_reco_html() -> str:
         sub = (f"Bij verkoop houd je naar schatting <b>{euro(wr.net_worth_end)}</b> over: een netto {profit_sign} van "
                f"{euro(wr.net_result)}, oftewel {pct(wr.annual_return)} per jaar.")
         stats = [
-            ("Over bij verkoop", euro(wr.net_worth_end), "overwaarde + pot buiten woning"),
+            ("Over bij verkoop", euro(wr.net_worth_end), "overwaarde + vrij geld"),
             ("Netto resultaat", euro(wr.net_result), "na je totale inleg"),
             ("Rendement per jaar", pct(wr.annual_return), "kasstroomgewogen"),
             ("Maandlast start", euro(wr.monthly_payment_start), "eerste maand"),
@@ -504,7 +522,7 @@ def build_reco_html() -> str:
             title = f"Op basis van je invoer is <b>{winner}</b> financieel het sterkst"
             sub = reason_line(ws, wr, rs, rr)
         stats = [
-            ("Over bij verkoop", euro(wr.net_worth_end), "overwaarde + pot buiten woning"),
+            ("Over bij verkoop", euro(wr.net_worth_end), "overwaarde + vrij geld"),
             ("Netto resultaat", euro(wr.net_result), f"{pct(wr.annual_return)} per jaar"),
             (f"Voorsprong op {runner}", f"+{euro(margin)}", "extra netto resultaat"),
             ("Maandlast start", euro(wr.monthly_payment_start), "eerste maand"),
@@ -530,12 +548,12 @@ def build_reco_html() -> str:
 def build_comparison_note_html() -> str:
     if alt.invests:
         body = (
-            f"Elk scenario krijgt dezelfde {euro(ref_cash)} eigen middelen en hetzelfde maandbudget van "
-            f"{euro(budget)}. Geld dat niet in de woning gaat, gaat naar "
+            f"Elk scenario start met hetzelfde eigen geld ({euro(ref_cash)}) en hetzelfde maandbudget van "
+            f"{euro(budget)}. Wat niet als eigen inbreng in de woning gaat, is vrij geld en gaat naar "
             f"{CASH_VEHICLES[vehicle].lower()} na kosten en box 3. Rangschikking op netto resultaat."
         )
     else:
-        body = ("Geld buiten de woning wordt niet meegenomen. Elk scenario wordt beoordeeld op de eigen inbreng "
+        body = ("Vrij geld wordt niet meegenomen. Elk scenario wordt beoordeeld op de eigen inbreng "
                 "en maandlast. Rangschikking op netto resultaat.")
     return f'<div class="compare-note">{escape(body)}</div>'
 
@@ -548,12 +566,11 @@ def build_scenario_cards_html() -> str:
         rows = [
             ("Vermogen bij verkoop", euro(r.net_worth_end)),
             ("Maandlast start", euro(r.monthly_payment_start)),
-            ("Eigen geld", euro(s.down_payment)),
+            ("Eigen inbreng in woning", euro(s.down_payment)),
+            ("Hypotheek", euro(s.loan_amount)),
         ]
         if alt.invests:
-            rows.append(("Pot buiten woning", euro(r.side_pot_end)))
-        else:
-            rows.append(("Hypotheek", euro(s.loan_amount)))
+            rows.append(("Vrij geld bij verkoop", euro(r.side_pot_end)))
         row_html = "".join(
             f'<div class="metric-row"><span>{label}</span><span>{value}</span></div>'
             for label, value in rows
@@ -563,7 +580,8 @@ def build_scenario_cards_html() -> str:
         cards.append(
             f'<div class="{classes}" style="--accent:{accent}">'
             '<div class="scenario-top">'
-            f'<div class="scenario-name">{escape(r.name)}</div>{badge}'
+            f'<div><div class="scenario-name">{escape(r.name)}</div>'
+            f'<div class="scenario-type">{TYPES[s.mortgage_type]}</div></div>{badge}'
             '</div>'
             f'<div class="scenario-value">{euro(r.net_result)}</div>'
             f'<div class="scenario-label">Netto resultaat · {pct(r.annual_return)} per jaar</div>'
@@ -588,22 +606,22 @@ st.markdown(build_scenario_cards_html(), unsafe_allow_html=True)
 # --------------------------------------------------------------------------- #
 st.markdown('<div class="section-title">Verdieping</div>', unsafe_allow_html=True)
 t_optim, t_time, t_wealth, t_profit, t_bank, t_table, t_year = st.tabs([
-    "Eigen geld", "Vermogen door de tijd", "Opbouw vermogen",
+    "Eigen inbreng", "Vermogen door de tijd", "Opbouw vermogen",
     "Resultaat verklaard", "Naar de bank", "Vergelijking", "Jaaroverzicht",
 ])
 
 # --- Optimal down payment sweep --- #
 with t_optim:
     st.caption(
-        "**Hoeveel eigen geld kun je het best in de woning stoppen?** De grafiek houdt je totale "
-        "geld en maandbudget gelijk. Wat je niet inlegt, gaat naar sparen, deposito of beleggen. "
-        "Elke lijn toont een combinatie van hypotheekvorm en bestemming voor geld buiten de woning. "
-        "De gemarkeerde punten zijn jouw ingestelde scenario's."
+        "**Hoeveel van je eigen geld kun je het best als eigen inbreng in de woning stoppen?** "
+        "De grafiek houdt je totale eigen geld en maandbudget gelijk. Wat je niet inbrengt, blijft "
+        "vrij geld en gaat naar sparen, deposito of beleggen. Elke lijn toont een combinatie van "
+        "hypotheekvorm en bestemming van vrij geld. De gemarkeerde punten zijn jouw scenario's."
     )
     oc1, oc2 = st.columns([2, 3])
     with oc1:
         cash_avail = st.number_input(
-            "Totaal beschikbaar eigen geld", 0, int(price),
+            "Eigen geld voor deze grafiek", 0, int(price),
             min(int(ref_cash) if ref_cash > 0 else 100_000, int(price)), 5_000,
             help="De X-as loopt van €0 eigen inbreng tot dit bedrag. Standaard sluit dit aan op je scenario's.")
     with oc2:
@@ -628,7 +646,7 @@ with t_optim:
                 x=xs, y=c["ys"], mode="lines",
                 line=dict(width=2.5, color=VEH_COLORS[v], dash=TYPE_DASH[mt]),
                 name=label,
-                hovertemplate=f"{label}<br>Eigen geld €%{{x:,.0f}}<br>{metric}: %{{customdata}}<extra></extra>",
+                hovertemplate=f"{label}<br>Eigen inbreng €%{{x:,.0f}}<br>{metric}: %{{customdata}}<extra></extra>",
                 customdata=[pct(y) if is_pct else euro(y) for y in c["ys"]]))
             # subdued per-curve sweet-spot marker
             fig5.add_trace(go.Scatter(
@@ -645,7 +663,7 @@ with t_optim:
         marker=dict(size=20, color="#f59e0b", symbol="star",
                     line=dict(width=2, color="#0f172a")),
         name="Beste keuze",
-        hovertemplate=f"Beste keuze<br>Eigen geld €%{{x:,.0f}}<extra></extra>"))
+        hovertemplate=f"Beste keuze<br>Eigen inbreng €%{{x:,.0f}}<extra></extra>"))
 
     # Overlay the configured scenarios as labelled dots, using your configured vehicle.
     for dot_name, dot_down, dot_y in dots:
@@ -654,13 +672,26 @@ with t_optim:
             marker=dict(size=10, color="#0f172a", line=dict(width=2, color="#fff")),
             text=[f" {dot_name}"], textposition="bottom center",
             textfont=dict(size=11, color=MUTED), showlegend=False,
-            hovertemplate=f"{dot_name}<br>Eigen geld €%{{x:,.0f}}<extra></extra>"))
+            hovertemplate=f"{dot_name}<br>Eigen inbreng €%{{x:,.0f}}<extra></extra>"))
 
-    fig5.update_layout(xaxis_title="Eigen geld in de woning bij aankoop",
-                       legend=dict(orientation="h", yanchor="bottom", y=-0.30, x=0))
-    style_fig(fig5, 460, metric, money_y=not is_pct)
+    fig5.update_layout(xaxis_title="Eigen inbreng in de woning bij aankoop")
+    style_fig(fig5, 500, metric, money_y=not is_pct)
     fig5.update_xaxes(tickprefix="€", tickformat="~s")
-    fig5.update_layout(showlegend=True)
+    fig5.update_layout(
+        showlegend=True,
+        margin=dict(l=8, r=8, t=78, b=30),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.08,
+            xanchor="left",
+            x=0,
+            bgcolor="rgba(255,255,255,.92)",
+            bordercolor="#dfe6ee",
+            borderwidth=1,
+            font=dict(size=12),
+        ),
+    )
     if is_pct:
         fig5.update_yaxes(tickprefix="", tickformat=".1%")
     st.plotly_chart(fig5, width="stretch")
@@ -676,7 +707,7 @@ with t_optim:
                 return ("blijft stijgen tot de rand. Binnen dit bedrag is meer eigen inbreng dus gunstiger; "
                         "verhoog het beschikbare eigen geld om te zien waar het kantelpunt ligt")
             if c["best_i"] <= 0:
-                return "is het hoogst bij €0 eigen inbreng. Geld buiten de woning werkt hier beter"
+                return "is het hoogst bij €0 eigen inbreng. Vrij geld werkt hier beter"
             return f"is het sterkst bij **{euro(c['best_d'])}** eigen inbreng"
 
         bv, bmt = best_key
@@ -695,7 +726,7 @@ with t_optim:
         )
         st.caption(lines)
         st.caption("De uitkomst ligt vaak aan een uiteinde: niets inleggen of juist veel inleggen. "
-                   "Als rendement na belasting hoger is dan de netto hypotheekkosten, loont geld buiten de woning; "
+                   "Als rendement na belasting hoger is dan de netto hypotheekkosten, loont vrij geld; "
                    "anders werkt extra aflossen meestal beter.")
         if is_pct:
             st.caption("Let op: jaarlijks rendement piekt vaak bij lage eigen inbreng door hefboomwerking. "
@@ -707,7 +738,7 @@ with t_optim:
 
 # --- Net worth over time --- #
 with t_time:
-    st.caption("Overwaarde na verkoopkosten en resterende hypotheek, plus het geld buiten de woning per jaar.")
+    st.caption("Overwaarde na verkoopkosten en resterende hypotheek, plus vrij geld per jaar.")
     fig = go.Figure()
     for i, (s, r) in enumerate(pairs):
         years = [row["year"] for row in r.yearly]
@@ -721,14 +752,14 @@ with t_time:
 # --- Wealth breakdown --- #
 with t_wealth:
     st.caption("Zo is het vermogen bij verkoop opgebouwd: verkoopopbrengst na kosten, min resterende hypotheek, "
-               "plus geld buiten de woning.")
+               "plus vrij geld.")
     names = [r.name for r in results]
     fig3 = go.Figure()
     fig3.add_trace(go.Bar(name="Netto verkoopopbrengst", x=names,
                           y=[r.home_value_end - r.selling_costs for r in results], marker_color=GREEN))
     fig3.add_trace(go.Bar(name="- Resterende hypotheek", x=names,
                           y=[-r.remaining_balance for r in results], marker_color=RED))
-    fig3.add_trace(go.Bar(name="Pot buiten woning", x=names,
+    fig3.add_trace(go.Bar(name="Vrij geld", x=names,
                           y=[r.side_pot_end for r in results], marker_color=ACCENTS[0]))
     fig3.update_layout(barmode="relative")
     st.plotly_chart(style_fig(fig3, 380), width="stretch")
@@ -736,13 +767,13 @@ with t_wealth:
 # --- Where profit comes from --- #
 with t_profit:
     st.caption("Aflossen is geen winst: je zet geld om in overwaarde. Het netto resultaat komt vooral uit "
-               "waardestijging, rente, aankoop- en verkoopkosten, belastingvoordeel en rendement op geld buiten de woning.")
+               "waardestijging, rente, aankoop- en verkoopkosten, belastingvoordeel en rendement op vrij geld.")
     pcols = st.columns(len(results))
     for col, s, r in zip(pcols, scenarios, results):
         appreciation = r.home_value_end - s.house_price
         invest_gain = r.side_pot_end - r.invested_cash_start - r.spare_invested_total
         labels = ["Waarde-<br>stijging", "Betaalde<br>rente", "Aankoop-<br>kosten",
-                  "Verkoop-<br>kosten", "Belasting-<br>voordeel", "Rendement<br>buiten woning", "Netto<br>resultaat"]
+                  "Verkoop-<br>kosten", "Belasting-<br>voordeel", "Rendement<br>vrij geld", "Netto<br>resultaat"]
         values = [appreciation, -r.total_interest, -r.purchase_costs["net"],
                   -r.selling_costs, r.total_tax_benefit, invest_gain, r.net_result]
         measures = ["relative"] * 6 + ["total"]
@@ -787,12 +818,12 @@ with t_table:
             "Hypotheek": euro(s.loan_amount),
             "Aankoopkosten netto": euro(r.purchase_costs["net"]),
             "Maandlast start": euro(r.monthly_payment_start),
-            "Startbedrag buiten woning": euro(r.invested_cash_start),
-            "Maandruimte buiten woning": euro(r.spare_invested_total),
+            "Startbedrag vrij geld": euro(r.invested_cash_start),
+            "Maandruimte vrij geld": euro(r.spare_invested_total),
             "Woningwaarde bij verkoop": euro(r.home_value_end),
             "Resterende hypotheek": euro(r.remaining_balance),
             "Verkoopkosten": euro(r.selling_costs),
-            "Pot buiten woning bij verkoop": euro(r.side_pot_end),
+            "Vrij geld bij verkoop": euro(r.side_pot_end),
             "Totale rente": euro(r.total_interest),
             "Totale aflossing": euro(r.total_principal_repaid),
             "Totaal betaald aan bank": euro(r.total_interest + r.total_principal_repaid),
@@ -822,7 +853,7 @@ with t_year:
                 "paid_to_bank": "Betaald aan bank", "remaining_balance": "Restschuld",
                 "home_value": "Woningwaarde", "ewf": "EWF",
                 "net_tax_benefit": "Netto belastingvoordeel", "box3_tax": "Box 3-belasting",
-                "invested_pot": "Pot buiten woning",
+                "invested_pot": "Vrij geld",
             })
             for c in df.columns:
                 if c != "Jaar":
