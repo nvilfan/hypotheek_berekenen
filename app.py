@@ -10,6 +10,8 @@ recommendation and keeps all supporting detail in tabs.
 
 from __future__ import annotations
 
+import json
+
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -23,6 +25,121 @@ from mortgage import (
     reference_cash,
     run_scenario,
 )
+
+# --------------------------------------------------------------------------- #
+# Model labels & the optimisation sweep grid (shared by widgets and compute)
+# --------------------------------------------------------------------------- #
+TYPES = {"annuity": "Annuïteit (annuity)", "linear": "Lineair (linear)"}
+SWEEP_VEHICLES = ["savings", "deposit", "investment"]
+VEH_COLORS = {"savings": "#0891b2", "deposit": "#7c3aed", "investment": "#2563eb"}
+TYPE_DASH = {"annuity": "solid", "linear": "dot"}
+N_SWEEP = 41
+
+
+# --------------------------------------------------------------------------- #
+# Compute layer — pure, cached on the *committed* input snapshot.
+#
+# Every input widget feeds a snapshot dict; the heavy model only re-runs when
+# that snapshot changes (i.e. when the user clicks Calculate), not on every
+# keystroke. The two in-tab sweep controls (cash pool, metric) are extra cache
+# keys, so they stay live without re-running anything else.
+# --------------------------------------------------------------------------- #
+def build_models(C: dict) -> tuple[TaxAssumptions, CashAlternative, list[ScenarioInput], int]:
+    tax = TaxAssumptions(
+        ewf_rate=C["ewf_rate"], hillen_pct=C["hillen"], max_deduction_rate=C["max_ded"],
+        starters_exemption=C["starters"], transfer_tax_rate=C["transfer"],
+        nhg_premium_rate=C["nhg_rate"], box3_tax_rate=C["b3_rate"],
+        box3_return_savings=C["b3_save"], box3_return_investments=C["b3_inv"],
+        box3_allowance=float(C["b3_allow"]),
+    )
+    alt = CashAlternative(
+        vehicle=C["vehicle"], savings_rate=C["sav_rate"], deposit_rate=C["dep_rate"],
+        investment_return=C["inv_ret"], annual_fee=C["fee"],
+    )
+    eff_horizon = min(int(C["horizon"]), int(C["term"]))
+    scenarios = [
+        ScenarioInput(
+            name=n, house_price=float(C["price"]), down_payment=float(d),
+            interest_rate=C["rate"], mortgage_type=t, mortgage_term_years=int(C["term"]),
+            fixed_period_years=int(C["fixed"]), horizon_years=eff_horizon,
+            appreciation_rate=C["appr"], gross_income=float(C["income"]),
+            other_purchase_costs=float(C["other"]), selling_cost_rate=C["sell"], nhg=C["nhg"],
+        )
+        for (n, t, d) in C["scenarios"]
+    ]
+    return tax, alt, scenarios, eff_horizon
+
+
+def _metric_of(r, metric: str) -> float:
+    return {"Net worth at sale": r.net_worth_end,
+            "Net result (profit)": r.net_result,
+            "Annualised return": r.annual_return}[metric]
+
+
+@st.cache_data(show_spinner=False)
+def compute_core(snap_json: str):
+    """Run every configured scenario; cached on the committed input snapshot."""
+    C = json.loads(snap_json)
+    tax, alt, scenarios, _ = build_models(C)
+    budget = reference_budget(scenarios)
+    ref_cash = reference_cash(scenarios)
+    results = [
+        run_scenario(s, tax, alt=alt, invested_cash=ref_cash - s.down_payment,
+                     budget_monthly=budget)
+        for s in scenarios
+    ]
+    return scenarios, results, budget, ref_cash
+
+
+@st.cache_data(show_spinner=False)
+def compute_sweep(snap_json: str, cap: float, metric: str):
+    """Sweep the down payment over 2 mortgage types × 3 vehicles. Heavy: cached."""
+    C = json.loads(snap_json)
+    tax, alt, scenarios, eff_horizon = build_models(C)
+    price = float(C["price"])
+
+    def scenario_at(d, mtype):
+        return ScenarioInput(
+            name="s", house_price=price, down_payment=min(d, price), interest_rate=C["rate"],
+            mortgage_type=mtype, mortgage_term_years=int(C["term"]),
+            fixed_period_years=int(C["fixed"]), horizon_years=eff_horizon,
+            appreciation_rate=C["appr"], gross_income=float(C["income"]),
+            other_purchase_costs=float(C["other"]), selling_cost_rate=C["sell"], nhg=C["nhg"])
+
+    # Fixed monthly budget = highest first-month payment (full linear loan), so the
+    # monthly spare invested never goes negative and all curves share one X grid.
+    sweep_budget = max(
+        reference_budget([scenario_at(0.0, mt)]) for mt in TYPES
+    )
+
+    def run_at(d, mtype, alt_v):
+        return run_scenario(scenario_at(d, mtype), tax, alt=alt_v,
+                            invested_cash=cap - d, budget_monthly=sweep_budget)
+
+    xs = [cap * k / (N_SWEEP - 1) if N_SWEEP > 1 else 0.0 for k in range(N_SWEEP)]
+    curves: dict[tuple[str, str], dict] = {}
+    for v in SWEEP_VEHICLES:
+        av = CashAlternative(vehicle=v, savings_rate=C["sav_rate"], deposit_rate=C["dep_rate"],
+                             investment_return=C["inv_ret"], annual_fee=C["fee"])
+        for mt in TYPES:
+            ys = [_metric_of(run_at(d, mt, av), metric) for d in xs]
+            bi = max(range(N_SWEEP), key=lambda i: ys[i])
+            curves[(v, mt)] = {"ys": ys, "best_d": xs[bi], "best_y": ys[bi], "best_i": bi}
+    best_key = max(curves, key=lambda k: curves[k]["best_y"])
+
+    # Configured-scenario dots (using the chosen vehicle), computed here so no
+    # run_scenario call escapes the cache.
+    dots: list[tuple[str, float, float]] = []
+    if alt.invests:
+        seen: set = set()
+        for s in scenarios:
+            key = (s.mortgage_type, round(s.down_payment))
+            if key in seen or s.down_payment > cap:
+                continue
+            seen.add(key)
+            y = _metric_of(run_at(s.down_payment, s.mortgage_type, alt), metric)
+            dots.append((s.name, s.down_payment, y))
+    return xs, curves, best_key, dots
 
 # --------------------------------------------------------------------------- #
 # Page setup
@@ -154,6 +271,10 @@ def style_fig(fig: go.Figure, height: int = 380, ytitle: str = "€", money_y: b
 # Sidebar — all shared inputs, split into Basics and Advanced
 # --------------------------------------------------------------------------- #
 with st.sidebar:
+    # Rendered into below, after inputs are read — kept at the very top so it's
+    # always visible without scrolling.
+    calc_slot = st.container()
+    st.divider()
     st.markdown('<div class="side-kicker">Your situation</div>', unsafe_allow_html=True)
     st.header("Basics")
     st.caption("The few inputs that drive most of the answer. Shared by every scenario.")
@@ -215,25 +336,9 @@ with st.sidebar:
         b3_inv = st.number_input("Deemed return — investments %", 0.0, 15.0, 5.88, 0.1) / 100
         b3_allow = st.number_input("Tax-free allowance (single)", 0, 200_000, 57_684, 1_000)
 
-tax = TaxAssumptions(
-    ewf_rate=ewf_rate,
-    hillen_pct=hillen,
-    max_deduction_rate=max_ded,
-    starters_exemption=starters,
-    transfer_tax_rate=transfer,
-    nhg_premium_rate=nhg_rate,
-    box3_tax_rate=b3_rate,
-    box3_return_savings=b3_save,
-    box3_return_investments=b3_inv,
-    box3_allowance=float(b3_allow),
-)
-
-alt = CashAlternative(
-    vehicle=vehicle, savings_rate=sav_rate, deposit_rate=dep_rate,
-    investment_return=inv_ret, annual_fee=fee,
-)
-
-TYPES = {"annuity": "Annuïteit (annuity)", "linear": "Lineair (linear)"}
+# Shared inputs are now collected into a snapshot below (with the scenarios) and
+# the model objects are rebuilt from the *committed* snapshot, so nothing heavy
+# runs until the user clicks Calculate.
 
 # --------------------------------------------------------------------------- #
 # Scenarios — only what differs between the cases you compare
@@ -258,7 +363,7 @@ with top[1]:
 if horizon > term:
     st.warning(f"Holding period ({horizon}y) capped to the mortgage duration ({term}y).")
 
-scenarios: list[ScenarioInput] = []
+live_scenarios: list[tuple[str, str, float]] = []
 with st.container(border=True):
     tabs = st.tabs([f"Scenario {chr(65 + i)} — {DEFAULTS[i]['name']}" for i in range(n_scenarios)])
     ab_down = 0.0
@@ -290,23 +395,43 @@ with st.container(border=True):
                 f"spare cash → **{CASH_VEHICLES[vehicle]}**"
             )
 
-            scenarios.append(ScenarioInput(
-                name=name, house_price=float(price), down_payment=float(down),
-                interest_rate=rate, mortgage_type=mtype, mortgage_term_years=term,
-                fixed_period_years=fixed, horizon_years=eff_horizon, appreciation_rate=appr,
-                gross_income=float(income),
-                other_purchase_costs=float(other), selling_cost_rate=sell, nhg=nhg,
-            ))
+            live_scenarios.append((name, mtype, float(down)))
 
 # --------------------------------------------------------------------------- #
-# Run the model
+# Calculate gate — commit inputs only when the button is clicked, so the heavy
+# model (cached on the snapshot) reruns then, not on every keystroke.
 # --------------------------------------------------------------------------- #
-budget = reference_budget(scenarios)
-ref_cash = reference_cash(scenarios)
-results = [
-    run_scenario(s, tax, alt=alt, invested_cash=ref_cash - s.down_payment, budget_monthly=budget)
-    for s in scenarios
-]
+live = dict(
+    price=int(price), income=int(income), horizon=int(horizon), rate=rate, appr=appr,
+    term=int(term), fixed=int(fixed), nhg=bool(nhg), vehicle=vehicle,
+    sav_rate=sav_rate, dep_rate=dep_rate, inv_ret=inv_ret, fee=fee,
+    other=int(other), sell=sell, ewf_rate=ewf_rate, max_ded=max_ded, hillen=hillen,
+    starters=bool(starters), transfer=transfer, nhg_rate=nhg_rate, b3_rate=b3_rate,
+    b3_save=b3_save, b3_inv=b3_inv, b3_allow=int(b3_allow),
+    scenarios=live_scenarios,
+)
+
+calc_clicked = calc_slot.button("📊 Calculate", type="primary", use_container_width=True,
+                                help="Apply your inputs and re-run the model.")
+if calc_clicked or "committed" not in st.session_state:
+    st.session_state.committed = live
+
+C = st.session_state.committed
+snap_json = json.dumps(C, sort_keys=True)
+if live != C:
+    calc_slot.caption("⚠️ Inputs changed — click **Calculate** to update the results.")
+
+# --------------------------------------------------------------------------- #
+# Run the model (cached on the committed snapshot)
+# --------------------------------------------------------------------------- #
+tax, alt, scenarios, eff_horizon = build_models(C)
+# Rebind the loose names the rest of the page reads, to the *committed* values.
+price, income, rate, appr = C["price"], C["income"], C["rate"], C["appr"]
+term, fixed, nhg, vehicle = C["term"], C["fixed"], C["nhg"], C["vehicle"]
+sav_rate, dep_rate, inv_ret, fee = C["sav_rate"], C["dep_rate"], C["inv_ret"], C["fee"]
+other, sell = C["other"], C["sell"]
+
+scenarios, results, budget, ref_cash = compute_core(snap_json)
 pairs = list(zip(scenarios, results))
 ranked = sorted(pairs, key=lambda sr: sr[1].net_result, reverse=True)
 winner_name = ranked[0][1].name
@@ -455,57 +580,9 @@ with t_optim:
     cap = min(float(cash_avail), float(price))
     is_pct = metric == "Annualised return"
 
-    def metric_of(r) -> float:
-        return {"Net worth at sale": r.net_worth_end,
-                "Net result (profit)": r.net_result,
-                "Annualised return": r.annual_return}[metric]
-
-    # The three investing vehicles are swept as separate curves (savings / deposit /
-    # investment). "Nowhere" is excluded — with no spare-cash growth there is nothing to
-    # optimise against. Each uses the sidebar's configured rates.
-    SWEEP_VEHICLES = ["savings", "deposit", "investment"]
-    VEH_COLORS = {"savings": "#0891b2", "deposit": "#7c3aed", "investment": "#2563eb"}
-    TYPE_DASH = {"annuity": "solid", "linear": "dot"}
-
-    def alt_for(v: str) -> CashAlternative:
-        return CashAlternative(vehicle=v, savings_rate=sav_rate, deposit_rate=dep_rate,
-                               investment_return=inv_ret, annual_fee=fee)
-
-    def run_at(d: float, mtype: str, alt_v: CashAlternative):
-        """Metric at down payment d, cash pool fixed at `cap`, spare cash in `alt_v`."""
-        s = ScenarioInput(
-            name="s", house_price=float(price), down_payment=min(d, float(price)),
-            interest_rate=rate, mortgage_type=mtype, mortgage_term_years=term,
-            fixed_period_years=fixed, horizon_years=eff_horizon, appreciation_rate=appr,
-            gross_income=float(income), other_purchase_costs=float(other),
-            selling_cost_rate=sell, nhg=nhg)
-        return run_scenario(s, tax, alt=alt_v, invested_cash=cap - d, budget_monthly=sweep_budget)
-
-    # Same fixed monthly budget as the recommendation, so the curves and the dots agree
-    # with the cards above. It is the highest first-month payment, which (for a given cash
-    # pool) is a full linear mortgage — guaranteeing the monthly spare invested stays >= 0.
-    # Vehicle-independent, so all curves share one budget and one X grid.
-    sweep_budget = max(
-        reference_budget([ScenarioInput(name="b", house_price=float(price), down_payment=0.0,
-                                         interest_rate=rate, mortgage_type=mt,
-                                         mortgage_term_years=term, fixed_period_years=fixed,
-                                         horizon_years=eff_horizon, appreciation_rate=appr,
-                                         gross_income=float(income), other_purchase_costs=float(other),
-                                         selling_cost_rate=sell, nhg=nhg)])
-        for mt in TYPES
-    )
-
-    N = 41
-    xs = [cap * k / (N - 1) if N > 1 else 0.0 for k in range(N)]
-    curves: dict[tuple[str, str], dict] = {}
-    for v in SWEEP_VEHICLES:
-        av = alt_for(v)
-        for mt in TYPES:
-            ys = [metric_of(run_at(d, mt, av)) for d in xs]
-            bi = max(range(N), key=lambda i: ys[i])
-            curves[(v, mt)] = {"ys": ys, "best_d": xs[bi], "best_y": ys[bi], "best_i": bi}
-
-    best_key = max(curves, key=lambda k: curves[k]["best_y"])
+    # Heavy sweep (2 mortgage types × 3 vehicles), cached on the committed snapshot
+    # plus the live cash pool / metric so it only re-runs when those actually change.
+    xs, curves, best_key, dots = compute_sweep(snap_json, cap, metric)
 
     fig5 = go.Figure()
     for v in SWEEP_VEHICLES:
@@ -536,19 +613,13 @@ with t_optim:
         hovertemplate=f"Best overall<br>€%{{x:,.0f}} in<extra></extra>"))
 
     # Overlay the configured scenarios as labelled dots, using your configured vehicle.
-    seen: set = set()
-    for s, r in pairs:
-        keyk = (s.mortgage_type, round(s.down_payment))
-        if keyk in seen or s.down_payment > cap or not alt.invests:
-            continue
-        seen.add(keyk)
-        y_here = metric_of(run_at(s.down_payment, s.mortgage_type, alt))
+    for dot_name, dot_down, dot_y in dots:
         fig5.add_trace(go.Scatter(
-            x=[s.down_payment], y=[y_here], mode="markers+text",
+            x=[dot_down], y=[dot_y], mode="markers+text",
             marker=dict(size=10, color="#0f172a", line=dict(width=2, color="#fff")),
-            text=[f" {r.name}"], textposition="bottom center",
+            text=[f" {dot_name}"], textposition="bottom center",
             textfont=dict(size=11, color=MUTED), showlegend=False,
-            hovertemplate=f"{r.name}<br>€%{{x:,.0f}} in<extra></extra>"))
+            hovertemplate=f"{dot_name}<br>€%{{x:,.0f}} in<extra></extra>"))
 
     fig5.update_layout(xaxis_title="Own money put in at the start (eigen inbreng)",
                        legend=dict(orientation="h", yanchor="bottom", y=-0.30, x=0))
@@ -566,7 +637,7 @@ with t_optim:
             return pct(v) if is_pct else euro(v)
 
         def edge_note(c) -> str:
-            if c["best_i"] >= N - 1:
+            if c["best_i"] >= N_SWEEP - 1:
                 return ("rises all the way to the edge — within this cash it's *more is better*, "
                         "and the true optimum may be even higher (raise 'total cash' to check)")
             if c["best_i"] <= 0:
