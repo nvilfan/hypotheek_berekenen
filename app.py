@@ -603,8 +603,9 @@ def build_scenario_cards_html() -> str:
         ]
         if alt.invests:
             rows.append(("Spaar-/beleggingspot bij verkoop", euro(r.side_pot_end)))
-        if r.extra_repaid > 1:
-            rows.append(("Extra afgelost", euro(r.extra_repaid)))
+        extra_repaid = getattr(r, "extra_repaid", 0.0)
+        if extra_repaid > 1:
+            rows.append(("Extra afgelost", euro(extra_repaid)))
         row_html = "".join(
             f'<div class="metric-row"><span>{label}</span><span>{value}</span></div>'
             for label, value in rows
@@ -808,7 +809,7 @@ with t_profit:
         labels = ["Waarde-<br>stijging", "Betaalde<br>rente", "Aankoop-<br>kosten",
                   "Verkoop-<br>kosten", "Belasting-<br>voordeel", "Rendement<br>vrij geld", "Netto<br>resultaat"]
         values = [appreciation, -r.total_interest, -r.purchase_costs["net"],
-                  -r.selling_costs, r.total_tax_benefit, r.side_pot_gain, r.net_result]
+                  -r.selling_costs, r.total_tax_benefit, getattr(r, "side_pot_gain", 0.0), r.net_result]
         measures = ["relative"] * 6 + ["total"]
         with col:
             st.markdown(f"**{r.name}**")
@@ -857,7 +858,7 @@ with t_table:
             "Resterende hypotheek": euro(r.remaining_balance),
             "Verkoopkosten": euro(r.selling_costs),
             "Vrij geld bij verkoop": euro(r.side_pot_end),
-            "Extra afgelost": euro(r.extra_repaid),
+            "Extra afgelost": euro(getattr(r, "extra_repaid", 0.0)),
             "Totale rente": euro(r.total_interest),
             "Totale aflossing (incl. extra)": euro(r.total_principal_repaid),
             "Totaal betaald aan bank": euro(r.total_interest + r.total_principal_repaid),
