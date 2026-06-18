@@ -1,48 +1,48 @@
-# 🏠 Huis & Hypotheek — Dutch first-home investment comparison
+# 🏠 Huis & Hypotheek — Nederlandse hypotheekvergelijker
 
-A Streamlit dashboard that compares **up to 3 house-buying scenarios** for a
-first-time, solo buyer in the Netherlands over a chosen holding period, and
-shows whether buying the home pays off once you account for tax and costs.
+Een Streamlit-dashboard dat **maximaal 3 hypotheekscenario's** vergelijkt voor
+een koper in Nederland. De tool laat zien welke keuze financieel het sterkst is
+over de periode waarin je de woning wilt houden, inclusief belasting, kosten en
+geld dat je eventueel buiten de woning laat groeien.
 
-The interface is **output-first**: shared inputs live in the sidebar (split into
-**Basics** and **Advanced** settings), and the main canvas leads with a single,
-plain-language **recommendation** — *"based on your situation, the best choice is
-X"* — followed by KPI cards and all supporting charts organised into tabs.
+De interface is gericht op de uitkomst: de belangrijkste invoer staat links, de
+pagina begint met een helder advies en daarna volgen de KPI's, grafieken en
+details in overzichtelijke tabs.
 
-It models the things that actually move the answer in NL:
+De berekening neemt de belangrijkste Nederlandse factoren mee:
 
-- **Mortgage types:** annuïteit (annuity) and lineair (linear) amortization
-- **Hypotheekrenteaftrek** — mortgage-interest deduction, capped at the
-  statutory rate (aftrektarief), derived from the buyer's income bracket
-- **Eigenwoningforfait (EWF)** added to box 1 income, with the **Wet Hillen**
-  reduction
-- **NHG** borgtochtprovisie and the **startersvrijstelling** (0% transfer tax)
-- House appreciation, selling costs, and purchase costs (kosten koper)
+- **Hypotheekvormen:** annuïteitenhypotheek en lineaire hypotheek
+- **Hypotheekrenteaftrek:** afgetopt op het wettelijke aftrekpercentage en
+  gebaseerd op het ingevoerde inkomen
+- **Eigenwoningforfait (EWF)** en de **Wet Hillen**
+- **NHG**, NHG-premie en **startersvrijstelling** voor overdrachtsbelasting
+- Waardestijging van de woning, verkoopkosten en aankoopkosten
+- Box 3 voor geld dat buiten de woning wordt gespaard, vastgezet of belegd
 
-## How scenarios are compared
+## Hoe scenario's worden vergeleken
 
-For a fair comparison, every scenario is put on the **same upfront cash** (the
-largest down payment) and the **same monthly budget** (the highest first-month
-payment); whatever a scenario doesn't put into the house — the down-payment
-difference as a lump, plus the monthly mortgage saving — is invested in the
-chosen vehicle (savings, deposit or portfolio), net of fees and box 3. Choosing
-the *Nowhere* vehicle disables this and evaluates each scenario at its own
-payment instead. For every scenario the tool reports the **net worth at sale**
-(your equity = home value − selling costs − remaining mortgage, plus the invested
-pot), the **net result / profit** (net worth minus everything you put in), and
-the money-weighted annualised return (IRR). The recommendation ranks scenarios
-by net result.
+Voor een eerlijke vergelijking krijgt elk scenario dezelfde beschikbare eigen
+middelen en hetzelfde maandbudget. Wat een scenario niet in de woning stopt,
+wordt meegenomen als geld buiten de woning: het verschil in eigen inbreng plus
+eventuele maandruimte doordat de hypotheeklast lager is.
 
-The key idea the dashboard makes explicit: repaying principal is **not** profit
-— it just turns cash into home equity. Your real gain is
+Per scenario toont de tool:
 
+- **Vermogen bij verkoop:** overwaarde na verkoopkosten en resterende hypotheek,
+  plus de pot buiten de woning
+- **Netto resultaat:** vermogen bij verkoop minus je totale eigen inleg
+- **Jaarlijks rendement:** kasstroomgewogen rendement over de gekozen periode
+
+De belangrijkste gedachte: aflossen is op zichzelf geen winst. Je zet geld om in
+overwaarde. Het netto resultaat komt vooral uit:
+
+```text
+netto resultaat =
+waardestijging woning - rente - aankoopkosten - verkoopkosten
++ belastingvoordeel + rendement op geld buiten de woning
 ```
-profit = house appreciation − interest − purchase costs − selling costs + tax relief
-```
 
-shown as a per-scenario waterfall that reconciles exactly to the net result.
-
-## Run it
+## Lokaal draaien
 
 ```bash
 python3 -m venv .venv
@@ -50,7 +50,7 @@ python3 -m venv .venv
 .venv/bin/streamlit run app.py
 ```
 
-Then open the URL Streamlit prints (default http://localhost:8501).
+Open daarna de URL die Streamlit toont, standaard `http://localhost:8501`.
 
 ## Tests
 
@@ -58,25 +58,26 @@ Then open the URL Streamlit prints (default http://localhost:8501).
 .venv/bin/python -m pytest -q
 ```
 
-## Project layout
+## Projectstructuur
 
-```
-app.py                 # Streamlit dashboard (thin UI layer)
+```text
+app.py                 # Streamlit-dashboard
 mortgage/
-  models.py            # ScenarioInput + TaxAssumptions dataclasses
-  tax.py               # income brackets, box 1 home benefit, purchase costs
-  engine.py            # month-by-month simulation -> ScenarioResult
-tests/test_engine.py   # sanity tests for the model
+  models.py            # ScenarioInput en TaxAssumptions dataclasses
+  tax.py               # inkomstenbelasting, box 1, box 3 en aankoopkosten
+  engine.py            # maandelijkse simulatie naar ScenarioResult
+tests/test_engine.py   # sanity tests voor het rekenmodel
 ```
 
-The `mortgage` package has **no Streamlit dependency**, so the financial model
-can be imported and reused independently of the UI.
+Het pakket `mortgage` heeft geen Streamlit-afhankelijkheid. Het financiële model
+kan dus ook los van de interface worden geïmporteerd en hergebruikt.
 
-## Assumptions & caveats
+## Aannames
 
-- Defaults reflect **2025** figures and are all editable in the sidebar — update
-  them each tax year.
-- This is a simplified, transparent model for comparison, **not tax or
-  financial advice**. The EWF is approximated on the home's market value (the
-  real basis is the lagging WOZ value); income-tax brackets are 2025 and applied
-  to the entered gross income only.
+- De standaardwaarden zijn gebaseerd op **2025** en zijn aanpasbaar in de
+  zijbalk.
+- Dit is een vereenvoudigd en transparant model om scenario's te vergelijken.
+  Het is **geen belasting- of financieel advies**.
+- Het EWF wordt benaderd op basis van de marktwaarde van de woning; in de
+  praktijk is de WOZ-waarde leidend. De belastingschijven zijn 2025 en worden
+  alleen toegepast op het ingevoerde bruto inkomen.

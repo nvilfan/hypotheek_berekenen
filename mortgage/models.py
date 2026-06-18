@@ -55,10 +55,10 @@ class TaxAssumptions:
 # Where the spare monthly cash (vs the priciest scenario) is invested.
 # "nowhere" disables the mechanism entirely.
 CASH_VEHICLES: dict[str, str] = {
-    "savings": "Savings account",
-    "deposit": "Deposit",
-    "investment": "Investment portfolio",
-    "nowhere": "Nowhere (ignore spare cash)",
+    "savings": "Spaarrekening",
+    "deposit": "Deposito",
+    "investment": "Beleggingsportefeuille",
+    "nowhere": "Niet meenemen",
 }
 
 
