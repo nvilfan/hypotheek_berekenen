@@ -1,6 +1,11 @@
 """Huis & Hypotheek — Dutch first-home buy-vs-invest comparison dashboard.
 
 Run with:  streamlit run app.py
+
+The UI is a thin layer over the (Streamlit-free, tested) ``mortgage`` package.
+It is organised output-first: shared inputs live in the sidebar, split into
+Basics and Advanced; the main canvas leads with a single, plain-language
+recommendation and keeps all supporting detail in tabs.
 """
 
 from __future__ import annotations
@@ -20,34 +25,77 @@ from mortgage import (
 )
 
 # --------------------------------------------------------------------------- #
-# Page setup & styling
+# Page setup
 # --------------------------------------------------------------------------- #
 st.set_page_config(
-    page_title="Huis & Hypotheek — Investment Comparison",
+    page_title="Huis & Hypotheek — which mortgage choice wins?",
     page_icon="🏠",
     layout="wide",
 )
 
-ACCENTS = ["#2563eb", "#16a34a", "#db2777"]  # blue, green, pink
+# Design system ------------------------------------------------------------- #
+FONT = '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+INK = "#0f172a"
+MUTED = "#64748b"
+GRID = "#eef2f7"
+LINE = "#e2e8f0"
+GREEN = "#16a34a"
+RED = "#ef4444"
+ACCENTS = ["#2563eb", "#7c3aed", "#0891b2"]  # blue, violet, cyan — one per scenario
 
 st.markdown(
     """
     <style>
-      .block-container {padding-top: 2.2rem; max-width: 1400px;}
-      h1, h2, h3 {letter-spacing: -0.01em;}
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+      html, body, [class*="css"] { font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif; }
+      .block-container { padding-top: 2.0rem; padding-bottom: 3rem; max-width: 1360px; }
+      h1, h2, h3, h4 { letter-spacing: -0.02em; color: #0f172a; }
+      #MainMenu, footer { visibility: hidden; }
+
+      /* ---- Hero ---- */
+      .hero { padding: 4px 2px 14px 2px; border-bottom: 1px solid #eef2f7; margin-bottom: 22px; }
+      .hero h1 { font-size: 1.6rem; margin: 0 0 4px 0; font-weight: 800; }
+      .hero p  { margin: 0; color: #64748b; font-size: .98rem; max-width: 760px; }
+      .pill { display:inline-block; background:#eef4ff; color:#2563eb; font-weight:600;
+              padding:3px 11px; border-radius:999px; font-size:.74rem; margin:8px 6px 0 0; }
+
+      /* ---- Recommendation card (the primary output) ---- */
+      .reco { background: linear-gradient(135deg,#1e3a8a 0%, #2563eb 55%, #4f46e5 100%);
+              color:#fff; border-radius: 22px; padding: 26px 30px; margin: 4px 0 10px 0;
+              box-shadow: 0 18px 40px -18px rgba(37,99,235,.55); }
+      .reco-badge { display:inline-block; background:rgba(255,255,255,.18); color:#fff;
+              font-weight:700; letter-spacing:.06em; font-size:.7rem;
+              padding:5px 12px; border-radius:999px; }
+      .reco-title { font-size: 1.7rem; font-weight:800; margin: 14px 0 2px 0; line-height:1.2; }
+      .reco-title b { color:#fff; }
+      .reco-sub { font-size:1.0rem; opacity:.92; margin: 8px 0 20px 0; max-width: 820px; line-height:1.5; }
+      .reco-stats { display:flex; flex-wrap:wrap; gap:12px; }
+      .reco-stat { background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.18);
+              border-radius:14px; padding:12px 16px; min-width:150px; flex:1; }
+      .reco-stat .l { font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; opacity:.8; }
+      .reco-stat .v { font-size:1.35rem; font-weight:800; margin-top:3px; }
+      .reco-stat .d { font-size:.78rem; opacity:.85; margin-top:2px; }
+
+      /* ---- Scenario column headers ---- */
+      .sc-head { border-top: 4px solid #2563eb; border-radius: 4px 4px 0 0;
+                 padding: 8px 2px 4px 2px; font-weight:700; font-size:1.0rem; }
+      .sc-win { display:inline-block; background:#ecfdf5; color:#16a34a; font-weight:700;
+                font-size:.66rem; padding:2px 8px; border-radius:999px; margin-left:6px;
+                vertical-align:middle; border:1px solid #bbf7d0; }
+
+      /* ---- Metric cards ---- */
       div[data-testid="stMetric"] {
-          background: linear-gradient(180deg,#ffffff,#f7f9fc);
-          border: 1px solid #e8edf3; border-radius: 16px; padding: 14px 16px;
-          box-shadow: 0 1px 2px rgba(16,24,40,.04);
-      }
-      div[data-testid="stMetricLabel"] {opacity:.65; font-weight:600;}
-      .hero {background: linear-gradient(120deg,#1e3a8a,#2563eb 55%,#7c3aed);
-             color:#fff; padding: 26px 30px; border-radius: 20px; margin-bottom: 18px;}
-      .hero h1 {color:#fff; margin:0 0 6px 0; font-size: 1.9rem;}
-      .hero p {margin:0; opacity:.9; font-size:1.02rem;}
-      .pill {display:inline-block; background:rgba(255,255,255,.16); color:#fff;
-             padding:3px 12px; border-radius:999px; font-size:.78rem; margin-right:6px;}
-      .stTabs [data-baseweb="tab"] {font-weight:600;}
+          background:#fff; border:1px solid #e8edf3; border-radius:14px;
+          padding:12px 16px; box-shadow:0 1px 2px rgba(16,24,40,.04); }
+      div[data-testid="stMetricLabel"] { opacity:.62; font-weight:600; }
+
+      /* ---- Tabs / sidebar polish ---- */
+      .stTabs [data-baseweb="tab"] { font-weight:600; }
+      section[data-testid="stSidebar"] { background:#fbfcfe; border-right:1px solid #eef2f7; }
+      section[data-testid="stSidebar"] h2 { font-size:1.05rem; }
+      .side-kicker { font-size:.72rem; font-weight:700; letter-spacing:.08em;
+                     text-transform:uppercase; color:#94a3b8; margin: 2px 0 -4px 0; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -56,13 +104,13 @@ st.markdown(
 st.markdown(
     """
     <div class="hero">
-      <h1>🏠 Huis &amp; Hypotheek — Investment Comparison</h1>
-      <p>Compare up to three home-buying scenarios for a Dutch first-time, solo buyer —
-      with mortgage-interest deduction, eigenwoningforfait, NHG, and the cash you
-      don't put into the house invested instead (after fees and box 3).</p>
-      <div style="margin-top:12px">
+      <h1>🏠 Huis &amp; Hypotheek</h1>
+      <p>Compare house-buying scenarios for a Dutch first-time, solo buyer — and get a
+         clear recommendation. Accounts for hypotheekrenteaftrek, eigenwoningforfait,
+         NHG, box 3, and the spare cash invested instead.</p>
+      <div>
         <span class="pill">Annuïteit &amp; Lineair</span>
-        <span class="pill">Hypotheekrenteaftrek</span>
+        <span class="pill">Renteaftrek</span>
         <span class="pill">Eigenwoningforfait</span>
         <span class="pill">NHG</span>
         <span class="pill">Box 3</span>
@@ -81,41 +129,91 @@ def pct(x: float) -> str:
     return f"{x*100:.2f}%"
 
 
+def style_fig(fig: go.Figure, height: int = 380, ytitle: str = "€", money_y: bool = True) -> go.Figure:
+    """Apply the shared, clean plotly look."""
+    fig.update_layout(
+        height=height,
+        margin=dict(l=8, r=8, t=14, b=8),
+        font=dict(family=FONT, size=13, color="#334155"),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        yaxis_title=ytitle,
+        legend=dict(orientation="h", yanchor="bottom", y=-0.24, x=0, font=dict(size=12)),
+        hoverlabel=dict(font_size=12, font_family=FONT, bgcolor="#fff"),
+    )
+    fig.update_xaxes(showgrid=False, zeroline=False, linecolor=LINE, ticks="outside",
+                     tickcolor=LINE, tickfont=dict(color=MUTED))
+    fig.update_yaxes(showgrid=True, gridcolor=GRID, zeroline=True, zerolinecolor=LINE,
+                     tickfont=dict(color=MUTED))
+    if money_y:
+        fig.update_yaxes(tickprefix="€", tickformat="~s")
+    return fig
+
+
 # --------------------------------------------------------------------------- #
-# Sidebar — shared assumptions
+# Sidebar — all shared inputs, split into Basics and Advanced
 # --------------------------------------------------------------------------- #
 with st.sidebar:
-    st.header("⚙️ Comparison settings")
-    n_scenarios = st.radio("Number of scenarios", [1, 2, 3], index=2, horizontal=True)
+    st.markdown('<div class="side-kicker">Your situation</div>', unsafe_allow_html=True)
+    st.header("Basics")
+    st.caption("The few inputs that drive most of the answer. Shared by every scenario.")
 
-    vehicle = st.radio(
-        "Cash not put into the house (down payment + monthly savings) goes into:",
-        options=list(CASH_VEHICLES.keys()),
-        format_func=lambda k: CASH_VEHICLES[k],
-        index=2,
-        help=("Every scenario is put on the same upfront cash (the largest down payment) and "
-              "the same monthly budget (the highest first-month payment). Whatever a scenario "
-              "doesn't put into the house — the down-payment difference as a lump, plus the "
-              "monthly mortgage saving — is invested here, growing net of fees and taxed yearly "
-              "in box 3, then added to net worth. Choose 'Nowhere' to ignore all spare cash."),
-    )
+    price = st.number_input("House price", 50_000, 2_000_000, 280_000, 5_000,
+                            help="The purchase price you're comparing scenarios against.")
+    income = st.number_input("Gross annual income", 0, 1_000_000, 60_000, 1_000,
+                             help="Sets your tax bracket — and so the value of mortgage-interest deduction.")
+    horizon = st.slider("Years before you sell", 1, 30, 10,
+                        help="How long you keep the house. The whole comparison runs over this period.")
+    rate = st.number_input("Mortgage interest %", 0.0, 15.0, 3.9, 0.05,
+                           help="Your hypotheekrente (annual nominal rate).") / 100
+    appr = st.number_input("Expected house growth %/yr", -10.0, 20.0, 3.0, 0.25,
+                           help="Average yearly rise in the home's value, compounded — the single biggest "
+                                "driver of whether buying pays off.") / 100
 
     st.divider()
-    st.subheader("🇳🇱 Tax assumptions (2025)")
-    st.caption("Editable — update as the rules change each year.")
-    with st.expander("Box 1 — owner-occupied home"):
+    st.markdown('<div class="side-kicker">Advanced settings</div>', unsafe_allow_html=True)
+    st.caption("Sensible Dutch 2025 defaults — open only if you want to fine-tune.")
+
+    with st.expander("🏦 Mortgage details"):
+        term = st.slider("Mortgage duration (years)", 5, 30, 30)
+        fixed = st.selectbox("Fixed-interest period (years)", [1, 5, 10, 20, 30], index=2)
+        nhg = st.checkbox("NHG (mortgage guarantee)", value=True)
+
+    with st.expander("📈 Spare cash — where it's invested"):
+        st.caption("Whatever a scenario doesn't put into the house is invested here, "
+                   "growing net of fees and taxed yearly in box 3.")
+        vehicle = st.radio(
+            "Invest spare cash in:",
+            options=list(CASH_VEHICLES.keys()),
+            format_func=lambda k: CASH_VEHICLES[k],
+            index=2,
+        )
+        sav_rate = st.number_input("Savings rente %/yr", 0.0, 15.0, 1.5, 0.1) / 100
+        dep_rate = st.number_input("Deposit rente %/yr", 0.0, 15.0, 2.5, 0.1) / 100
+        inv_ret = st.number_input("Investment return %/yr", -10.0, 25.0, 6.0, 0.5) / 100
+        fee = st.number_input("Investment fee %/yr", 0.0, 5.0, 0.3, 0.05,
+                              help="Annual cost of the portfolio (fund/ETF fees), applied to investments only.") / 100
+
+    with st.expander("🧾 One-off & selling costs"):
+        other = st.number_input("Other purchase costs (notary, valuation, advice)",
+                                0, 50_000, 4_000, 250)
+        sell = st.number_input("Selling costs % (makelaar etc.)", 0.0, 10.0, 1.5, 0.1) / 100
+
+    with st.expander("🇳🇱 Tax assumptions (2025)"):
+        st.caption("Editable — update as the rules change each year.")
+        st.markdown("**Box 1 — owner-occupied home**")
         ewf_rate = st.number_input("Eigenwoningforfait rate %", 0.0, 2.0, 0.35, 0.01) / 100
         max_ded = st.number_input("Max interest-deduction rate %", 0.0, 60.0, 37.48, 0.1) / 100
         hillen = st.number_input("Wet Hillen factor %", 0.0, 100.0, 76.67, 0.5) / 100
-    with st.expander("One-off purchase taxes"):
+        st.markdown("**One-off purchase taxes**")
         starters = st.checkbox("Starters' exemption (0% transfer tax)", value=True)
         transfer = st.number_input("Transfer tax (if no exemption) %", 0.0, 10.0, 2.0, 0.1) / 100
         nhg_rate = st.number_input("NHG premium %", 0.0, 5.0, 0.6, 0.05) / 100
-    with st.expander("Box 3 — wealth tax on invested cash"):
+        st.markdown("**Box 3 — wealth tax on invested cash**")
         b3_rate = st.number_input("Box 3 tax rate %", 0.0, 60.0, 36.0, 0.5) / 100
         b3_save = st.number_input("Deemed return — savings/deposit %", 0.0, 15.0, 1.44, 0.1) / 100
         b3_inv = st.number_input("Deemed return — investments %", 0.0, 15.0, 5.88, 0.1) / 100
-        b3_allow = st.number_input("Tax-free allowance (single) €", 0, 200_000, 57_684, 1_000)
+        b3_allow = st.number_input("Tax-free allowance (single)", 0, 200_000, 57_684, 1_000)
 
 tax = TaxAssumptions(
     ewf_rate=ewf_rate,
@@ -130,58 +228,15 @@ tax = TaxAssumptions(
     box3_allowance=float(b3_allow),
 )
 
-TYPES = {"annuity": "Annuïteit (annuity)", "linear": "Lineair (linear)"}
-
-# --------------------------------------------------------------------------- #
-# Shared inputs — the same for every scenario, so you enter them only once.
-# --------------------------------------------------------------------------- #
-st.subheader("🏡 Your situation")
-st.caption("These apply to **every** scenario — fill them in once.")
-
-with st.container(border=True):
-    g1, g2, g3 = st.columns(3)
-    with g1:
-        st.markdown("**Property & buyer**")
-        price = st.number_input("House price €", 50_000, 2_000_000, 280_000, 5_000)
-        horizon = st.slider(
-            "Holding period before selling (years)", 1, 30, 10,
-            help="How long you keep the house before selling. The comparison runs over this period.",
-        )
-        income = st.number_input("Gross annual income €", 0, 1_000_000, 60_000, 1_000)
-        nhg = st.checkbox("NHG (mortgage guarantee)", value=True)
-    with g2:
-        st.markdown("**Mortgage**")
-        rate = st.number_input("Mortgage interest (hypotheekrente) %", 0.0, 15.0, 3.9, 0.05) / 100
-        term = st.slider("Mortgage duration (years)", 5, 30, 30)
-        fixed = st.selectbox("Fixed-interest period (years)", [1, 5, 10, 20, 30], index=2)
-    with g3:
-        st.markdown("**Market assumptions**")
-        appr = st.number_input(
-            "Expected house value growth %/yr", -10.0, 20.0, 3.0, 0.25,
-            help=("Average yearly rise in the home's value, compounded. Sets the resale price — "
-                  "the single biggest driver of whether buying pays off."),
-        ) / 100
-        st.caption("Return on spare monthly cash (vehicle chosen in the sidebar):")
-        sav_rate = st.number_input("Savings account rente %/yr", 0.0, 15.0, 1.5, 0.1) / 100
-        dep_rate = st.number_input("Deposit rente %/yr", 0.0, 15.0, 2.5, 0.1) / 100
-        inv_ret = st.number_input("Investment return %/yr", -10.0, 25.0, 6.0, 0.5) / 100
-        fee = st.number_input("Investment fee %/yr", 0.0, 5.0, 0.3, 0.05,
-                              help="Annual cost of an investment portfolio (e.g. fund/ETF fees). "
-                                   "Applied to the investment portfolio only.") / 100
-
-    c5, c6 = st.columns(2)
-    with c5:
-        other = st.number_input("Other purchase costs € (notary, valuation, advice)", 0, 50_000, 4_000, 250)
-    with c6:
-        sell = st.number_input("Selling costs % (makelaar etc.)", 0.0, 10.0, 1.5, 0.1) / 100
-
 alt = CashAlternative(
     vehicle=vehicle, savings_rate=sav_rate, deposit_rate=dep_rate,
     investment_return=inv_ret, annual_fee=fee,
 )
 
+TYPES = {"annuity": "Annuïteit (annuity)", "linear": "Lineair (linear)"}
+
 # --------------------------------------------------------------------------- #
-# Scenarios — only what differs between the cases you compare.
+# Scenarios — only what differs between the cases you compare
 # --------------------------------------------------------------------------- #
 DEFAULTS = [
     dict(name="Annuity mortgage", down=0, typ="annuity"),
@@ -190,14 +245,18 @@ DEFAULTS = [
 ]
 
 eff_horizon = min(horizon, term)
+
+st.subheader("⚖️ Scenarios to compare")
+top = st.columns([3, 2])
+with top[0]:
+    st.caption("Everything else is shared (set in the sidebar). Per scenario you choose the "
+               "**mortgage type** and the **cash you bring in**. Scenario B always uses Scenario A's cash.")
+with top[1]:
+    n_scenarios = st.radio("Number of scenarios", [1, 2, 3], index=2, horizontal=True,
+                           label_visibility="collapsed")
+
 if horizon > term:
     st.warning(f"Holding period ({horizon}y) capped to the mortgage duration ({term}y).")
-
-st.subheader("📊 Scenarios")
-st.caption(
-    "Everything above is shared. Per scenario you set the **mortgage type** and **cash brought in**. "
-    "Scenario B always uses the same cash as Scenario A."
-)
 
 scenarios: list[ScenarioInput] = []
 with st.container(border=True):
@@ -215,14 +274,12 @@ with st.container(border=True):
             with c3:
                 if i == 1:  # Scenario B follows Scenario A's cash automatically.
                     down = ab_down
-                    # No key: a keyed value would stick in session state and ignore A's changes.
-                    st.number_input("Cash brought in (eigen inbreng) €", value=int(ab_down),
-                                    disabled=True)
+                    st.number_input("Cash brought in (eigen inbreng)", value=int(ab_down), disabled=True)
                     st.caption("Automatically equal to Scenario A.")
                 else:
                     down = st.number_input(
-                        "Cash brought in (eigen inbreng) €", 0, int(price), d["down"], 5_000,
-                        key=f"down{i}", help="Your own money. The mortgage is house price minus this.")
+                        "Cash brought in (eigen inbreng)", 0, int(price), d["down"], 5_000,
+                        key=f"down{i}", help="Your own money. The mortgage is the house price minus this.")
                     if i == 0:
                         ab_down = float(down)
 
@@ -238,7 +295,7 @@ with st.container(border=True):
             ))
 
 # --------------------------------------------------------------------------- #
-# Run the model — down-payment lump + spare monthly cash go into the vehicle.
+# Run the model
 # --------------------------------------------------------------------------- #
 budget = reference_budget(scenarios)
 ref_cash = reference_cash(scenarios)
@@ -246,202 +303,254 @@ results = [
     run_scenario(s, tax, alt=alt, invested_cash=ref_cash - s.down_payment, budget_monthly=budget)
     for s in scenarios
 ]
+pairs = list(zip(scenarios, results))
+ranked = sorted(pairs, key=lambda sr: sr[1].net_result, reverse=True)
+winner_name = ranked[0][1].name
+
+# --------------------------------------------------------------------------- #
+# THE RECOMMENDATION — primary output
+# --------------------------------------------------------------------------- #
+def reason_line(ws, wr, rs, rr) -> str:
+    """One plain-language sentence on why the winner wins, vs the runner-up."""
+    net_rate = alt.net_rate()
+    dp_diff = ws.down_payment - rs.down_payment
+    if abs(dp_diff) > 1_000:
+        if dp_diff > 0:
+            return (f"Putting more of your cash into the house ({euro(ws.down_payment)} vs "
+                    f"{euro(rs.down_payment)}) wins here: your {pct(ws.interest_rate)} mortgage costs "
+                    f"more than the {pct(net_rate)} your spare cash earns after fees &amp; box 3.")
+        return (f"Keeping cash out of the house and investing it wins: it earns {pct(net_rate)} "
+                f"after fees &amp; box 3, beating your {pct(ws.interest_rate)} mortgage rate.")
+    if ws.mortgage_type != rs.mortgage_type:
+        if ws.mortgage_type == "linear":
+            return ("A linear mortgage wins: you repay faster and pay less total interest — and the "
+                    "fair comparison still invests the higher early payments, so you keep the upside.")
+        return ("An annuity mortgage wins: its lower early payments leave more cash to invest, which "
+                "here outgrows the extra interest you pay.")
+    return f"It leaves you with the most after tax, interest and costs over {ws.horizon_years} years."
+
+
+def build_reco_html() -> str:
+    ws, wr = ranked[0]
+    profit_sign = "profit" if wr.net_result >= 0 else "loss"
+
+    if len(ranked) == 1:
+        verdict = ("a solid result" if wr.net_result > 0 else
+                   "a loss over this period — worth reconsidering the price, horizon or rate")
+        title = f"Over {ws.horizon_years} years, <b>{ws.name}</b> gives {verdict}"
+        sub = (f"You walk away with <b>{euro(wr.net_worth_end)}</b> at sale — a net {profit_sign} of "
+               f"{euro(wr.net_result)}, or {pct(wr.annual_return)} per year (money-weighted).")
+        stats = [
+            ("You walk away with", euro(wr.net_worth_end), "home equity + invested pot"),
+            ("Net result", euro(wr.net_result), f"after everything you put in"),
+            ("Annualised return", pct(wr.annual_return), "money-weighted (IRR)"),
+            ("Monthly payment", euro(wr.monthly_payment_start), "first month"),
+        ]
+    else:
+        rs, rr = ranked[1]
+        margin = wr.net_result - rr.net_result
+        if margin < 2_500:
+            title = f"It's almost a tie — <b>{ws.name}</b> just edges ahead"
+            sub = (f"<b>{ws.name}</b> beats <b>{rr.name}</b> by only {euro(margin)} over "
+                   f"{ws.horizon_years} years — so pick on preference (payment certainty vs. flexibility). "
+                   + reason_line(ws, wr, rs, rr))
+        else:
+            title = f"Based on your situation, the best choice is <b>{ws.name}</b>"
+            sub = reason_line(ws, wr, rs, rr)
+        stats = [
+            ("You walk away with", euro(wr.net_worth_end), "home equity + invested pot"),
+            ("Net result", euro(wr.net_result), f"{pct(wr.annual_return)} per year"),
+            (f"Ahead of {rr.name}", f"+{euro(margin)}", "extra net result"),
+            ("Monthly payment", euro(wr.monthly_payment_start), "first month"),
+        ]
+
+    chips = "".join(
+        f'<div class="reco-stat"><div class="l">{l}</div>'
+        f'<div class="v">{v}</div><div class="d">{d}</div></div>'
+        for l, v, d in stats
+    )
+    return (
+        '<div class="reco">'
+        '<span class="reco-badge">★ RECOMMENDED FOR YOU</span>'
+        f'<div class="reco-title">{title}</div>'
+        f'<div class="reco-sub">{sub}</div>'
+        f'<div class="reco-stats">{chips}</div>'
+        '</div>'
+    )
+
+
+st.markdown(build_reco_html(), unsafe_allow_html=True)
 
 if alt.invests:
     st.caption(
-        f"Shared budget for a fair comparison: **{euro(ref_cash)}** upfront cash + **{euro(budget)}/mo**. "
-        f"Each scenario invests whatever it doesn't put into the house (down payment **plus** the monthly "
-        f"mortgage saving) in a **{CASH_VEHICLES[vehicle].lower()}** — after fees & box 3."
+        f"Fair comparison: every scenario is given the same **{euro(ref_cash)}** upfront and "
+        f"**{euro(budget)}/mo** budget; whatever it doesn't put into the house is invested in a "
+        f"**{CASH_VEHICLES[vehicle].lower()}** (after fees &amp; box 3). Ranked by net result (profit)."
     )
 else:
-    st.caption("Spare cash is ignored — each scenario is evaluated at its own down payment and monthly payment.")
+    st.caption("Spare cash is ignored — each scenario is evaluated at its own down payment and monthly payment. "
+               "Ranked by net result (profit).")
 
 # --------------------------------------------------------------------------- #
-# KPI cards
+# KPI cards — winner highlighted
 # --------------------------------------------------------------------------- #
-st.subheader("📊 Results")
+st.markdown("#### At a glance")
 cols = st.columns(len(results))
-for col, s, r in zip(cols, scenarios, results):
+for i, (col, s, r) in enumerate(zip(cols, scenarios, results)):
+    accent = ACCENTS[i % len(ACCENTS)]
+    is_win = r.name == winner_name
+    badge = '<span class="sc-win">🏆 BEST</span>' if is_win else ""
     with col:
-        st.markdown(f"#### {r.name}")
-        st.metric(
-            "Net worth at sale", euro(r.net_worth_end),
-            help=("What you walk away with = home equity (home value − selling costs − "
-                  "remaining mortgage) plus the invested-cash pot (after fees & box 3)."),
-        )
-        st.metric(
-            "Net result (profit)", euro(r.net_result), delta=f"{pct(r.annual_return)} / yr",
-            help="Net worth at sale minus everything you put in (down payment, purchase costs, mortgage payments and invested spare cash, net of tax relief).",
-        )
-        st.metric("Invested-cash pot", euro(r.side_pot_end),
-                  help=f"Down-payment lump ({euro(r.invested_cash_start)}) + spare monthly cash "
-                       f"({euro(r.spare_invested_total)}), grown in a "
-                       f"{CASH_VEHICLES[vehicle].lower()} after fees & box 3.")
+        st.markdown(f'<div class="sc-head" style="border-color:{accent}">{r.name}{badge}</div>',
+                    unsafe_allow_html=True)
+        st.metric("Net worth at sale", euro(r.net_worth_end),
+                  help="What you walk away with = home equity (home value − selling costs − remaining "
+                       "mortgage) plus the invested-cash pot (after fees & box 3).")
+        st.metric("Net result (profit)", euro(r.net_result), delta=f"{pct(r.annual_return)} / yr",
+                  help="Net worth at sale minus everything you put in.")
+        if alt.invests:
+            st.metric("Invested-cash pot", euro(r.side_pot_end),
+                      help=f"Down-payment lump ({euro(r.invested_cash_start)}) + spare monthly cash "
+                           f"({euro(r.spare_invested_total)}), grown after fees & box 3.")
         st.metric("Monthly mortgage (start)", euro(r.monthly_payment_start))
-        st.metric("Total interest paid", euro(r.total_interest))
 
 # --------------------------------------------------------------------------- #
-# Comparison table
+# Detailed analysis — everything in tabs
 # --------------------------------------------------------------------------- #
-table = pd.DataFrame({
-    r.name: {
-        "House price": euro(s.house_price),
-        "Cash brought in": euro(s.down_payment),
-        "Loan": euro(s.loan_amount),
-        "Purchase costs (net)": euro(r.purchase_costs["net"]),
-        "Start monthly payment": euro(r.monthly_payment_start),
-        "Cash invested (lump)": euro(r.invested_cash_start),
-        "Spare monthly invested": euro(r.spare_invested_total),
-        "Home value at sale": euro(r.home_value_end),
-        "Remaining mortgage": euro(r.remaining_balance),
-        "Selling costs": euro(r.selling_costs),
-        "Invested pot at sale": euro(r.side_pot_end),
-        "Total interest": euro(r.total_interest),
-        "Total repayment": euro(r.total_principal_repaid),
-        "Total paid to bank": euro(r.total_interest + r.total_principal_repaid),
-        "Net tax benefit (box 1)": euro(r.total_tax_benefit),
-        "Box 3 tax on pot": euro(r.total_box3_tax),
-        "Total contributed": euro(r.total_contributed),
-        "Net worth at sale": euro(r.net_worth_end),
-        "Net result": euro(r.net_result),
-        "Annualised return": pct(r.annual_return),
-    }
-    for s, r in zip(scenarios, results)
-})
-st.dataframe(table, width="stretch")
+st.markdown("#### Detailed analysis")
+t_time, t_wealth, t_profit, t_bank, t_table, t_year = st.tabs([
+    "📈 Net worth over time", "🧱 Wealth breakdown", "💸 Where profit comes from",
+    "🏦 Paid to the bank", "📋 Full comparison", "🔎 Yearly detail",
+])
 
-# --------------------------------------------------------------------------- #
-# Charts
-# --------------------------------------------------------------------------- #
-st.markdown("##### Net worth over time")
-fig = go.Figure()
-for i, (s, r) in enumerate(zip(scenarios, results)):
-    years = [row["year"] for row in r.yearly]
-    nw = [
-        row["home_value"] * (1 - s.selling_cost_rate) - row["remaining_balance"] + row["invested_pot"]
-        for row in r.yearly
-    ]
-    fig.add_trace(go.Scatter(
-        x=years, y=nw, mode="lines+markers", name=r.name,
-        line=dict(width=3, color=ACCENTS[i % len(ACCENTS)]),
-    ))
-fig.update_layout(
-    height=380, margin=dict(l=10, r=10, t=10, b=10),
-    xaxis_title="Year", yaxis_title="Net worth (€)",
-    legend=dict(orientation="h", y=-0.2), plot_bgcolor="#fff",
-)
-st.plotly_chart(fig, width="stretch")
+# --- Net worth over time --- #
+with t_time:
+    st.caption("Equity (home value − selling costs − remaining mortgage) plus the invested pot, year by year.")
+    fig = go.Figure()
+    for i, (s, r) in enumerate(pairs):
+        years = [row["year"] for row in r.yearly]
+        nw = [row["home_value"] * (1 - s.selling_cost_rate) - row["remaining_balance"] + row["invested_pot"]
+              for row in r.yearly]
+        fig.add_trace(go.Scatter(x=years, y=nw, mode="lines+markers", name=r.name,
+                                 line=dict(width=3, color=ACCENTS[i % len(ACCENTS)])))
+    fig.update_layout(xaxis_title="Year")
+    st.plotly_chart(style_fig(fig, 420, "Net worth"), width="stretch")
 
-# --------------------------------------------------------------------------- #
-# Wealth breakdown (waterfall-style stacked bar) at sale
-# --------------------------------------------------------------------------- #
-st.markdown("##### How the net worth at sale is built up")
-fig3 = go.Figure()
-names = [r.name for r in results]
-fig3.add_trace(go.Bar(name="Net sale proceeds", x=names,
-                      y=[r.home_value_end - r.selling_costs for r in results], marker_color="#16a34a"))
-fig3.add_trace(go.Bar(name="− Remaining mortgage", x=names,
-                      y=[-r.remaining_balance for r in results], marker_color="#ef4444"))
-fig3.add_trace(go.Bar(name="Invested-cash pot", x=names,
-                      y=[r.side_pot_end for r in results], marker_color="#2563eb"))
-fig3.update_layout(barmode="relative", height=340, margin=dict(l=10, r=10, t=10, b=10),
-                   yaxis_title="€", legend=dict(orientation="h", y=-0.25), plot_bgcolor="#fff")
-st.plotly_chart(fig3, width="stretch")
+# --- Wealth breakdown --- #
+with t_wealth:
+    st.caption("How the net worth at sale is built up: net sale proceeds, minus the remaining mortgage, "
+               "plus the invested-cash pot.")
+    names = [r.name for r in results]
+    fig3 = go.Figure()
+    fig3.add_trace(go.Bar(name="Net sale proceeds", x=names,
+                          y=[r.home_value_end - r.selling_costs for r in results], marker_color=GREEN))
+    fig3.add_trace(go.Bar(name="− Remaining mortgage", x=names,
+                          y=[-r.remaining_balance for r in results], marker_color=RED))
+    fig3.add_trace(go.Bar(name="Invested-cash pot", x=names,
+                          y=[r.side_pot_end for r in results], marker_color=ACCENTS[0]))
+    fig3.update_layout(barmode="relative")
+    st.plotly_chart(style_fig(fig3, 380), width="stretch")
 
-# --------------------------------------------------------------------------- #
-# Profit bridge — where the net result actually comes from
-# --------------------------------------------------------------------------- #
-st.markdown("##### Where the profit comes from")
+# --- Where profit comes from --- #
+with t_profit:
+    st.caption("Repaying principal is **not** profit — it just turns cash into home equity. Your real gain "
+               "is appreciation, minus the cost of owning (interest, buying & selling costs), plus tax relief, "
+               "plus the invested-cash gain. The bars reconcile exactly to the net result.")
+    pcols = st.columns(len(results))
+    for col, s, r in zip(pcols, scenarios, results):
+        appreciation = r.home_value_end - s.house_price
+        invest_gain = r.side_pot_end - r.invested_cash_start - r.spare_invested_total
+        labels = ["House<br>appreciation", "Interest<br>paid", "Purchase<br>costs",
+                  "Selling<br>costs", "Tax<br>benefit", "Invested<br>cash gain", "Net<br>result"]
+        values = [appreciation, -r.total_interest, -r.purchase_costs["net"],
+                  -r.selling_costs, r.total_tax_benefit, invest_gain, r.net_result]
+        measures = ["relative"] * 6 + ["total"]
+        with col:
+            st.markdown(f"**{r.name}**")
+            wf = go.Figure(go.Waterfall(
+                orientation="v", measure=measures, x=labels, y=values,
+                text=[euro(v) for v in values], textposition="outside",
+                connector={"line": {"color": "#cbd5e1"}},
+                increasing={"marker": {"color": GREEN}},
+                decreasing={"marker": {"color": RED}},
+                totals={"marker": {"color": ACCENTS[0]}},
+            ))
+            wf.update_xaxes(tickfont=dict(size=10))
+            st.plotly_chart(style_fig(wf, 360), width="stretch")
+
+# --- Paid to the bank --- #
+with t_bank:
+    st.caption("Each bar is one year's payments to the bank. Solid = **principal** (repaying the loan), "
+               "hatched = **interest**. Annuity keeps the total level; linear keeps repayment flat so the total falls.")
+    fig4 = go.Figure()
+    for i, r in enumerate(results):
+        years = [row["year"] for row in r.yearly]
+        base = ACCENTS[i % len(ACCENTS)]
+        fig4.add_trace(go.Bar(x=years, y=[row["principal_paid"] for row in r.yearly],
+                              name=f"{r.name} · repayment", offsetgroup=str(i), legendgroup=r.name,
+                              marker_color=base,
+                              hovertemplate="Year %{x}<br>Repayment €%{y:,.0f}<extra></extra>"))
+        fig4.add_trace(go.Bar(x=years, y=[row["interest_paid"] for row in r.yearly],
+                              name=f"{r.name} · interest", offsetgroup=str(i), legendgroup=r.name,
+                              marker_color=base, opacity=0.45, marker_pattern_shape="/",
+                              hovertemplate="Year %{x}<br>Interest €%{y:,.0f}<extra></extra>"))
+    fig4.update_layout(barmode="stack", xaxis_title="Year")
+    st.plotly_chart(style_fig(fig4, 420, "Paid to the bank"), width="stretch")
+
+# --- Full comparison table --- #
+with t_table:
+    table = pd.DataFrame({
+        r.name: {
+            "House price": euro(s.house_price),
+            "Cash brought in": euro(s.down_payment),
+            "Loan": euro(s.loan_amount),
+            "Purchase costs (net)": euro(r.purchase_costs["net"]),
+            "Start monthly payment": euro(r.monthly_payment_start),
+            "Cash invested (lump)": euro(r.invested_cash_start),
+            "Spare monthly invested": euro(r.spare_invested_total),
+            "Home value at sale": euro(r.home_value_end),
+            "Remaining mortgage": euro(r.remaining_balance),
+            "Selling costs": euro(r.selling_costs),
+            "Invested pot at sale": euro(r.side_pot_end),
+            "Total interest": euro(r.total_interest),
+            "Total repayment": euro(r.total_principal_repaid),
+            "Total paid to bank": euro(r.total_interest + r.total_principal_repaid),
+            "Net tax benefit (box 1)": euro(r.total_tax_benefit),
+            "Box 3 tax on pot": euro(r.total_box3_tax),
+            "Total contributed": euro(r.total_contributed),
+            "Net worth at sale": euro(r.net_worth_end),
+            "Net result": euro(r.net_result),
+            "Annualised return": pct(r.annual_return),
+        }
+        for s, r in pairs
+    })
+    st.dataframe(table, width="stretch")
+
+# --- Yearly detail --- #
+with t_year:
+    for s, r in pairs:
+        with st.expander(f"{r.name} — purchase costs & yearly breakdown"):
+            pc = r.purchase_costs
+            st.write(
+                f"**Purchase costs (kosten koper):** transfer tax {euro(pc['transfer_tax'])} · "
+                f"NHG premium {euro(pc['nhg_premium'])} · other {euro(pc['other'])} · "
+                f"financing deduction −{euro(pc['financing_deduction'])} → **net {euro(pc['net'])}**"
+            )
+            df = pd.DataFrame(r.yearly).rename(columns={
+                "year": "Year", "interest_paid": "Interest", "principal_paid": "Repayment",
+                "paid_to_bank": "Paid to bank", "remaining_balance": "Balance",
+                "home_value": "Home value", "ewf": "EWF",
+                "net_tax_benefit": "Net tax benefit", "box3_tax": "Box 3 tax",
+                "invested_pot": "Invested pot",
+            })
+            for c in df.columns:
+                if c != "Year":
+                    df[c] = df[c].map(euro)
+            st.dataframe(df, width="stretch", hide_index=True)
+
+st.divider()
 st.caption(
-    "Repaying principal is **not** profit — it just turns your cash into home equity. "
-    "Your real gain is the house's appreciation, minus the cost of owning (interest, "
-    "buying & selling costs), plus tax relief, plus the gain on the invested cash "
-    "(net of fees & box 3). The bars below add up to the net result."
-)
-pcols = st.columns(len(results))
-for col, s, r in zip(pcols, scenarios, results):
-    appreciation = r.home_value_end - s.house_price
-    invest_gain = r.side_pot_end - r.invested_cash_start - r.spare_invested_total
-    labels = ["House<br>appreciation", "Interest<br>paid", "Purchase<br>costs",
-              "Selling<br>costs", "Tax<br>benefit", "Invested<br>cash gain", "Net<br>result"]
-    values = [appreciation, -r.total_interest, -r.purchase_costs["net"],
-              -r.selling_costs, r.total_tax_benefit, invest_gain, r.net_result]
-    measures = ["relative"] * 6 + ["total"]
-    with col:
-        st.markdown(f"**{r.name}**")
-        wf = go.Figure(go.Waterfall(
-            orientation="v", measure=measures, x=labels, y=values,
-            text=[euro(v) for v in values], textposition="outside",
-            connector={"line": {"color": "#cbd5e1"}},
-            increasing={"marker": {"color": "#16a34a"}},
-            decreasing={"marker": {"color": "#ef4444"}},
-            totals={"marker": {"color": "#2563eb"}},
-        ))
-        wf.update_layout(height=340, margin=dict(l=10, r=10, t=30, b=10),
-                         yaxis_title="€", plot_bgcolor="#fff", showlegend=False)
-        wf.update_xaxes(tickfont=dict(size=10))
-        st.plotly_chart(wf, width="stretch")
-
-# --------------------------------------------------------------------------- #
-# Paid to the bank per year (interest vs principal repayment)
-# --------------------------------------------------------------------------- #
-st.markdown("##### Paid to the bank each year — interest vs repayment")
-st.caption(
-    "Each bar is one year's payments to the bank. The solid part is **principal** "
-    "(repaying the loan), the hatched part is **interest**. Annuity keeps the total "
-    "level (interest shrinks, repayment grows); linear keeps repayment flat so the total falls."
-)
-fig4 = go.Figure()
-for i, r in enumerate(results):
-    years = [row["year"] for row in r.yearly]
-    principal = [row["principal_paid"] for row in r.yearly]
-    interest = [row["interest_paid"] for row in r.yearly]
-    base = ACCENTS[i % len(ACCENTS)]
-    fig4.add_trace(go.Bar(
-        x=years, y=principal, name=f"{r.name} · repayment", offsetgroup=str(i),
-        legendgroup=r.name, marker_color=base,
-        hovertemplate="Year %{x}<br>Repayment %{y:,.0f}<extra></extra>",
-    ))
-    fig4.add_trace(go.Bar(
-        x=years, y=interest, name=f"{r.name} · interest", offsetgroup=str(i),
-        legendgroup=r.name, marker_color=base, opacity=0.5,
-        marker_pattern_shape="/",
-        hovertemplate="Year %{x}<br>Interest %{y:,.0f}<extra></extra>",
-    ))
-fig4.update_layout(
-    barmode="stack", height=380, margin=dict(l=10, r=10, t=10, b=10),
-    xaxis_title="Year", yaxis_title="Paid to the bank (€)",
-    legend=dict(orientation="h", y=-0.25), plot_bgcolor="#fff",
-)
-st.plotly_chart(fig4, width="stretch")
-
-# --------------------------------------------------------------------------- #
-# Per-scenario yearly detail
-# --------------------------------------------------------------------------- #
-st.subheader("🔎 Yearly detail")
-for s, r in zip(scenarios, results):
-    with st.expander(f"{r.name} — purchase costs & yearly breakdown"):
-        pc = r.purchase_costs
-        st.write(
-            f"**Purchase costs (kosten koper):** transfer tax {euro(pc['transfer_tax'])} · "
-            f"NHG premium {euro(pc['nhg_premium'])} · other {euro(pc['other'])} · "
-            f"financing deduction −{euro(pc['financing_deduction'])} → **net {euro(pc['net'])}**"
-        )
-        df = pd.DataFrame(r.yearly)
-        df = df.rename(columns={
-            "year": "Year", "interest_paid": "Interest", "principal_paid": "Repayment",
-            "paid_to_bank": "Paid to bank", "remaining_balance": "Balance",
-            "home_value": "Home value", "ewf": "EWF",
-            "net_tax_benefit": "Net tax benefit", "box3_tax": "Box 3 tax",
-            "invested_pot": "Invested pot",
-        })
-        for c in df.columns:
-            if c != "Year":
-                df[c] = df[c].map(euro)
-        st.dataframe(df, width="stretch", hide_index=True)
-
-st.caption(
-    "ℹ️ This tool is a simplified, transparent model for comparison purposes — "
-    "not tax or financial advice. Tax rules (renteaftrek, eigenwoningforfait, "
-    "box 3, NHG, startersvrijstelling) change yearly; verify figures in the sidebar."
+    "ℹ️ This is a simplified, transparent model for comparison — **not tax or financial advice**. "
+    "Dutch tax rules (renteaftrek, eigenwoningforfait, box 3, NHG, startersvrijstelling) change yearly; "
+    "verify and update the figures in the sidebar's tax section."
 )

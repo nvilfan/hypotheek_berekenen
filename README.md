@@ -4,6 +4,11 @@ A Streamlit dashboard that compares **up to 3 house-buying scenarios** for a
 first-time, solo buyer in the Netherlands over a chosen holding period, and
 shows whether buying the home pays off once you account for tax and costs.
 
+The interface is **output-first**: shared inputs live in the sidebar (split into
+**Basics** and **Advanced** settings), and the main canvas leads with a single,
+plain-language **recommendation** — *"based on your situation, the best choice is
+X"* — followed by KPI cards and all supporting charts organised into tabs.
+
 It models the things that actually move the answer in NL:
 
 - **Mortgage types:** annuïteit (annuity) and lineair (linear) amortization
@@ -16,11 +21,17 @@ It models the things that actually move the answer in NL:
 
 ## How scenarios are compared
 
-Each scenario is evaluated at its **own actual monthly mortgage payment** — no
-shared budget. For every scenario the tool reports the **net worth at sale**
-(your equity = home value − selling costs − remaining mortgage), the **net
-result / profit** (net worth minus everything you put in), and the
-money-weighted annualised return (IRR).
+For a fair comparison, every scenario is put on the **same upfront cash** (the
+largest down payment) and the **same monthly budget** (the highest first-month
+payment); whatever a scenario doesn't put into the house — the down-payment
+difference as a lump, plus the monthly mortgage saving — is invested in the
+chosen vehicle (savings, deposit or portfolio), net of fees and box 3. Choosing
+the *Nowhere* vehicle disables this and evaluates each scenario at its own
+payment instead. For every scenario the tool reports the **net worth at sale**
+(your equity = home value − selling costs − remaining mortgage, plus the invested
+pot), the **net result / profit** (net worth minus everything you put in), and
+the money-weighted annualised return (IRR). The recommendation ranks scenarios
+by net result.
 
 The key idea the dashboard makes explicit: repaying principal is **not** profit
 — it just turns cash into home equity. Your real gain is
