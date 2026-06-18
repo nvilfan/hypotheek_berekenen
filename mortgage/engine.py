@@ -109,12 +109,15 @@ class ScenarioResult:
     invested_cash_start: float          # lump (down-payment difference) put in at t=0
     spare_invested_total: float         # spare monthly cash added over time
     side_pot_end: float                 # pot value at sale, after fees & box 3
+    side_pot_gain: float                # pot P&L (growth net of box 3); 0 if repaid
     net_worth_end: float                # equity + pot walked away with
 
     # Cash accounting over the horizon
     total_contributed: float            # everything paid in from your pocket
     total_interest: float
-    total_principal_repaid: float
+    total_principal_repaid: float       # scheduled + all extra repayments
+    extra_repaid_explicit: float        # one-off + yearly extra repayments (out of pocket)
+    extra_repaid_from_free_cash: float  # free cash routed into repayment ("repay" vehicle)
     total_tax_benefit: float            # box 1 relief (renteaftrek minus EWF)
     total_box3_tax: float               # box 3 paid on the invested pot
     net_result: float                   # net_worth_end - total_contributed
@@ -154,10 +157,20 @@ def run_scenario(
     invested_cash: float = 0.0,
     budget_monthly: float = 0.0,
 ) -> ScenarioResult:
-    """Simulate one scenario; invest the down-payment lump + spare monthly cash."""
+    """Simulate one scenario over its horizon.
+
+    Free cash (the down-payment ``lump`` plus the monthly ``spare`` vs the shared
+    budget) either grows an invested pot, or — for the ``"repay"`` vehicle — is
+    used to make an extra mortgage repayment once a year. On top of that, the
+    scenario's own ``extra_repay_once`` / ``extra_repay_annual`` are out-of-pocket
+    extra repayments applied regardless of the vehicle. Every extra euro of
+    principal lowers the balance, and therefore the interest, from then on.
+    """
     if alt is None:
         alt = CashAlternative(vehicle="nowhere")
-    invests = alt.invests
+    invests = alt.invests            # free cash participates (pot or repayment)
+    builds_pot = alt.builds_pot      # free cash grows an invested, box 3-taxed pot
+    repays_free = alt.repays         # free cash is used for extra repayment
 
     loan = scenario.loan_amount
     r = scenario.interest_rate / 12.0
@@ -174,20 +187,26 @@ def run_scenario(
     lump = max(0.0, invested_cash) if invests else 0.0
     balance = loan
     home_value = scenario.house_price
-    pot = lump
+    pot = lump if builds_pot else 0.0          # invested pot (grows, box 3)
+    repay_pool = lump if repays_free else 0.0  # free cash waiting to be repaid (1x/yr)
 
-    # Monthly cash flows for IRR: month 0 = initial cash out (house + lump).
+    extra_once = max(0.0, scenario.extra_repay_once)
+    extra_annual = max(0.0, scenario.extra_repay_annual)
+
+    # Monthly cash flows for IRR: month 0 = initial cash out (house + free cash).
     cashflows = [-(scenario.down_payment + lump + costs["net"])]
 
     total_interest = 0.0
-    total_principal = 0.0
+    total_principal = 0.0          # scheduled amortisation only
+    total_extra_explicit = 0.0     # out-of-pocket extra repayments actually applied
+    total_free_repaid = 0.0        # free cash routed into repayment
     total_tax_benefit = 0.0
     total_box3 = 0.0
     total_spare = 0.0
 
     yearly: list[dict] = []
     year_interest = 0.0
-    year_principal = 0.0
+    year_principal = 0.0           # scheduled + extra principal applied this year
     year_spare = 0.0
     home_value_year_start = home_value
     pot_year_start = pot
@@ -200,12 +219,15 @@ def run_scenario(
             sched_principal = min(linear_principal, balance)
         sched_principal = max(0.0, sched_principal)
         gross_payment = interest + sched_principal
+        balance -= sched_principal
 
         spare = max(0.0, budget_monthly - gross_payment) if invests else 0.0
-        pot += spare
-        pot *= 1 + pot_growth
+        if builds_pot:
+            pot += spare
+            pot *= 1 + pot_growth
+        elif repays_free:
+            repay_pool += spare   # batched, applied to the loan once a year
 
-        balance -= sched_principal
         home_value *= 1 + monthly_growth
 
         total_interest += interest
@@ -215,9 +237,17 @@ def run_scenario(
         year_principal += sched_principal
         year_spare += spare
 
-        # Cash out of pocket each month: the full budget if investing the spare,
-        # otherwise just the mortgage payment.
+        # Cash out of pocket each month: the full budget if free cash is in play,
+        # otherwise just the mortgage payment. Extra out-of-pocket repayments add on.
         month_cf = -(budget_monthly if invests else gross_payment)
+
+        # One-off extra repayment at the very start (out of pocket).
+        if m == 1 and extra_once > 0.0:
+            pay = min(extra_once, balance)
+            balance -= pay
+            total_extra_explicit += pay
+            year_principal += pay
+            month_cf -= pay
 
         if m % 12 == 0:
             benefit = taxmod.owner_home_tax_benefit(
@@ -230,10 +260,29 @@ def run_scenario(
             month_cf += benefit["net_benefit"]  # tax relief refunded at year-end
 
             b3 = 0.0
-            if invests:
+            if builds_pot:
                 b3 = taxmod.box3_tax(pot_year_start, is_investment=alt.is_investment, tax=tax)
                 pot -= b3
                 total_box3 += b3
+
+            # Recurring out-of-pocket extra repayment.
+            if extra_annual > 0.0:
+                pay = min(extra_annual, balance)
+                balance -= pay
+                total_extra_explicit += pay
+                year_principal += pay
+                month_cf -= pay
+
+            # Free cash repayment: apply this year's pool to the loan. Anything
+            # left once the loan is gone is held as cash (folded into the pot).
+            if repays_free and repay_pool > 0.0:
+                pay = min(repay_pool, balance)
+                balance -= pay
+                repay_pool -= pay
+                total_free_repaid += pay
+                year_principal += pay
+                pot += repay_pool   # residual cash after the loan is fully repaid
+                repay_pool = 0.0
 
             yearly.append(
                 {
@@ -263,8 +312,18 @@ def run_scenario(
     net_worth_end = equity + pot
     cashflows[-1] += net_worth_end  # liquidate home and pot at the end
 
+    # Out-of-pocket cash over the horizon. For the budget mechanism that is the
+    # fixed monthly budget; otherwise the actual mortgage payments. Explicit
+    # extra repayments are additional out-of-pocket on top (free-cash repayments
+    # are funded from the budget and so are already counted).
     cash_out = budget_monthly * horizon_m if invests else (total_interest + total_principal)
-    total_contributed = scenario.down_payment + lump + costs["net"] + cash_out - total_tax_benefit
+    total_contributed = (scenario.down_payment + lump + costs["net"]
+                         + cash_out + total_extra_explicit - total_tax_benefit)
+
+    # Pot P&L for the profit bridge: real growth net of box 3 when a pot is built;
+    # zero when free cash is repaid (its benefit shows up as lower interest, and
+    # the principal it pays nets out against the cash contributed).
+    side_pot_gain = (pot - lump - total_spare) if builds_pot else 0.0
 
     try:
         irr_m = irr(cashflows)
@@ -283,10 +342,13 @@ def run_scenario(
         invested_cash_start=lump,
         spare_invested_total=total_spare,
         side_pot_end=pot,
+        side_pot_gain=side_pot_gain,
         net_worth_end=net_worth_end,
         total_contributed=total_contributed,
         total_interest=total_interest,
-        total_principal_repaid=total_principal,
+        total_principal_repaid=total_principal + total_extra_explicit + total_free_repaid,
+        extra_repaid_explicit=total_extra_explicit,
+        extra_repaid_from_free_cash=total_free_repaid,
         total_tax_benefit=total_tax_benefit,
         total_box3_tax=total_box3,
         net_result=net_worth_end - total_contributed,

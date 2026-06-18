@@ -52,12 +52,14 @@ class TaxAssumptions:
                 raise ValueError(f"{name} must be non-negative, got {value}")
 
 
-# Where the spare monthly cash (vs the priciest scenario) is invested.
-# "nowhere" disables the mechanism entirely.
+# Where the free cash (lump + spare monthly cash vs the priciest scenario) goes.
+# "repay" uses it to make an extra mortgage repayment once a year instead of
+# building an investment pot; "nowhere" disables the mechanism entirely.
 CASH_VEHICLES: dict[str, str] = {
     "savings": "Spaarrekening",
     "deposit": "Deposito",
     "investment": "Beleggingsportefeuille",
+    "repay": "Extra aflossen op de woning",
     "nowhere": "Niet meenemen",
 }
 
@@ -84,7 +86,18 @@ class CashAlternative:
 
     @property
     def invests(self) -> bool:
+        """True when free cash participates (a pot is built *or* used to repay)."""
         return self.vehicle != "nowhere"
+
+    @property
+    def repays(self) -> bool:
+        """Free cash is used for extra mortgage repayment, not an invested pot."""
+        return self.vehicle == "repay"
+
+    @property
+    def builds_pot(self) -> bool:
+        """Free cash builds a growing, box 3-taxed investment/savings pot."""
+        return self.invests and not self.repays
 
     @property
     def is_investment(self) -> bool:
@@ -95,6 +108,7 @@ class CashAlternative:
             "savings": self.savings_rate,
             "deposit": self.deposit_rate,
             "investment": self.investment_return,
+            "repay": 0.0,
             "nowhere": 0.0,
         }[self.vehicle]
 
@@ -131,11 +145,19 @@ class ScenarioInput:
 
     nhg: bool = True
 
+    # --- Extra repayments (out-of-pocket, on top of the schedule) -------
+    # A one-off lump at the start and/or a recurring yearly amount. Both are
+    # applied to the principal and reduce the interest paid from then on.
+    extra_repay_once: float = 0.0           # one-time extra repayment at t=0
+    extra_repay_annual: float = 0.0         # recurring extra repayment per year
+
     def __post_init__(self) -> None:
         if self.mortgage_type not in ("annuity", "linear"):
             raise ValueError("mortgage_type must be 'annuity' or 'linear'")
         if self.down_payment > self.house_price:
             raise ValueError("down_payment cannot exceed house_price")
+        if self.extra_repay_once < 0 or self.extra_repay_annual < 0:
+            raise ValueError("extra repayments must be non-negative")
         if self.horizon_years > self.mortgage_term_years:
             raise ValueError("horizon cannot exceed mortgage term")
         if self.horizon_years < 1:
