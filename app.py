@@ -432,8 +432,10 @@ with t_optim:
     st.caption(
         "**How much of your own money should go into the house at the start?** Holding your "
         "total cash and monthly budget fixed, this sweeps the down payment — money *not* put "
-        "into the house is invested instead. The peak of each curve is the amount that leaves "
-        "you richest. Both mortgage types are shown; your configured scenarios appear as dots."
+        "into the house is invested instead. One curve per **mortgage type × spare-cash vehicle** "
+        "(line style = type, colour = vehicle); the peak of each is the amount that leaves you "
+        "richest with that combination. The single brightest star is the **overall best**. "
+        "Your configured scenarios appear as labelled dots."
     )
     oc1, oc2 = st.columns([2, 3])
     with oc1:
@@ -445,13 +447,10 @@ with t_optim:
                  "curve and dots match the recommendation above.")
     with oc2:
         metric = st.radio("Optimise for",
-                          ["Net worth at sale", "Net result (profit)", "Annualised return"],
-                          horizontal=True)
-
-    if not alt.invests:
-        st.info("This view compares putting cash **into the house** vs **investing it**. "
-                "The spare-cash vehicle is set to *Nowhere* — pick a vehicle in the sidebar "
-                "('📈 Spare cash') for a meaningful curve; otherwise un-invested cash isn't counted.")
+                          ["Net result (profit)", "Net worth at sale", "Annualised return"],
+                          horizontal=True,
+                          help="Net result (profit) is the default — what the decision actually earns "
+                               "you over the horizon, net of everything paid in.")
 
     cap = min(float(cash_avail), float(price))
     is_pct = metric == "Annualised return"
@@ -461,19 +460,31 @@ with t_optim:
                 "Net result (profit)": r.net_result,
                 "Annualised return": r.annual_return}[metric]
 
-    def run_at(d: float, mtype: str):
-        """Net worth/result/return at down payment d, with the cash pool fixed at `cap`."""
+    # The three investing vehicles are swept as separate curves (savings / deposit /
+    # investment). "Nowhere" is excluded — with no spare-cash growth there is nothing to
+    # optimise against. Each uses the sidebar's configured rates.
+    SWEEP_VEHICLES = ["savings", "deposit", "investment"]
+    VEH_COLORS = {"savings": "#0891b2", "deposit": "#7c3aed", "investment": "#2563eb"}
+    TYPE_DASH = {"annuity": "solid", "linear": "dot"}
+
+    def alt_for(v: str) -> CashAlternative:
+        return CashAlternative(vehicle=v, savings_rate=sav_rate, deposit_rate=dep_rate,
+                               investment_return=inv_ret, annual_fee=fee)
+
+    def run_at(d: float, mtype: str, alt_v: CashAlternative):
+        """Metric at down payment d, cash pool fixed at `cap`, spare cash in `alt_v`."""
         s = ScenarioInput(
             name="s", house_price=float(price), down_payment=min(d, float(price)),
             interest_rate=rate, mortgage_type=mtype, mortgage_term_years=term,
             fixed_period_years=fixed, horizon_years=eff_horizon, appreciation_rate=appr,
             gross_income=float(income), other_purchase_costs=float(other),
             selling_cost_rate=sell, nhg=nhg)
-        return run_scenario(s, tax, alt=alt, invested_cash=cap - d, budget_monthly=sweep_budget)
+        return run_scenario(s, tax, alt=alt_v, invested_cash=cap - d, budget_monthly=sweep_budget)
 
     # Same fixed monthly budget as the recommendation, so the curves and the dots agree
     # with the cards above. It is the highest first-month payment, which (for a given cash
     # pool) is a full linear mortgage — guaranteeing the monthly spare invested stays >= 0.
+    # Vehicle-independent, so all curves share one budget and one X grid.
     sweep_budget = max(
         reference_budget([ScenarioInput(name="b", house_price=float(price), down_payment=0.0,
                                          interest_rate=rate, mortgage_type=mt,
@@ -486,37 +497,52 @@ with t_optim:
 
     N = 41
     xs = [cap * k / (N - 1) if N > 1 else 0.0 for k in range(N)]
-    curves: dict[str, dict] = {}
-    for mt in TYPES:
-        ys = [metric_of(run_at(d, mt)) for d in xs]
-        bi = max(range(N), key=lambda i: ys[i])
-        curves[mt] = {"ys": ys, "best_d": xs[bi], "best_y": ys[bi], "best_i": bi}
+    curves: dict[tuple[str, str], dict] = {}
+    for v in SWEEP_VEHICLES:
+        av = alt_for(v)
+        for mt in TYPES:
+            ys = [metric_of(run_at(d, mt, av)) for d in xs]
+            bi = max(range(N), key=lambda i: ys[i])
+            curves[(v, mt)] = {"ys": ys, "best_d": xs[bi], "best_y": ys[bi], "best_i": bi}
 
-    TYPE_COLORS = {"annuity": ACCENTS[0], "linear": ACCENTS[1]}
+    best_key = max(curves, key=lambda k: curves[k]["best_y"])
+
     fig5 = go.Figure()
-    for mt in TYPES:
-        c = curves[mt]
-        fig5.add_trace(go.Scatter(
-            x=xs, y=c["ys"], mode="lines", line=dict(width=3, color=TYPE_COLORS[mt]),
-            name=TYPES[mt],
-            hovertemplate=f"{TYPES[mt]}<br>Own money €%{{x:,.0f}}<br>{metric}: %{{customdata}}<extra></extra>",
-            customdata=[pct(v) if is_pct else euro(v) for v in c["ys"]]))
-        # optimum marker for this curve
-        fig5.add_trace(go.Scatter(
-            x=[c["best_d"]], y=[c["best_y"]], mode="markers",
-            marker=dict(size=13, color=TYPE_COLORS[mt], symbol="star",
-                        line=dict(width=1.5, color="#fff")),
-            name=f"{TYPES[mt]} optimum", showlegend=False,
-            hovertemplate=f"{TYPES[mt]} optimum<br>€%{{x:,.0f}} in<extra></extra>"))
+    for v in SWEEP_VEHICLES:
+        for mt in TYPES:
+            c = curves[(v, mt)]
+            label = f"{CASH_VEHICLES[v].split(' (')[0]} · {TYPES[mt].split(' ')[0]}"
+            fig5.add_trace(go.Scatter(
+                x=xs, y=c["ys"], mode="lines",
+                line=dict(width=2.5, color=VEH_COLORS[v], dash=TYPE_DASH[mt]),
+                name=label,
+                hovertemplate=f"{label}<br>Own money €%{{x:,.0f}}<br>{metric}: %{{customdata}}<extra></extra>",
+                customdata=[pct(y) if is_pct else euro(y) for y in c["ys"]]))
+            # subdued per-curve sweet-spot marker
+            fig5.add_trace(go.Scatter(
+                x=[c["best_d"]], y=[c["best_y"]], mode="markers",
+                marker=dict(size=8, color=VEH_COLORS[v], symbol="circle",
+                            opacity=0.55, line=dict(width=1, color="#fff")),
+                showlegend=False,
+                hovertemplate=f"{label} sweet spot<br>€%{{x:,.0f}} in<extra></extra>"))
 
-    # Overlay the configured scenarios as labelled dots (they sit on their type's curve).
+    # The single overall best, marked unmistakably.
+    bc = curves[best_key]
+    fig5.add_trace(go.Scatter(
+        x=[bc["best_d"]], y=[bc["best_y"]], mode="markers",
+        marker=dict(size=20, color="#f59e0b", symbol="star",
+                    line=dict(width=2, color="#0f172a")),
+        name="Best overall",
+        hovertemplate=f"Best overall<br>€%{{x:,.0f}} in<extra></extra>"))
+
+    # Overlay the configured scenarios as labelled dots, using your configured vehicle.
     seen: set = set()
     for s, r in pairs:
         keyk = (s.mortgage_type, round(s.down_payment))
-        if keyk in seen or s.down_payment > cap:
+        if keyk in seen or s.down_payment > cap or not alt.invests:
             continue
         seen.add(keyk)
-        y_here = metric_of(run_at(s.down_payment, s.mortgage_type))
+        y_here = metric_of(run_at(s.down_payment, s.mortgage_type, alt))
         fig5.add_trace(go.Scatter(
             x=[s.down_payment], y=[y_here], mode="markers+text",
             marker=dict(size=10, color="#0f172a", line=dict(width=2, color="#fff")),
@@ -525,8 +551,8 @@ with t_optim:
             hovertemplate=f"{r.name}<br>€%{{x:,.0f}} in<extra></extra>"))
 
     fig5.update_layout(xaxis_title="Own money put in at the start (eigen inbreng)",
-                       legend=dict(orientation="h", yanchor="bottom", y=-0.24, x=0))
-    style_fig(fig5, 440, metric, money_y=not is_pct)
+                       legend=dict(orientation="h", yanchor="bottom", y=-0.30, x=0))
+    style_fig(fig5, 460, metric, money_y=not is_pct)
     fig5.update_xaxes(tickprefix="€", tickformat="~s")
     fig5.update_layout(showlegend=True)
     if is_pct:
@@ -534,7 +560,7 @@ with t_optim:
     st.plotly_chart(fig5, width="stretch")
 
     if cap <= 0:
-        st.info("Set a 'Total cash you could put in' above €0 to see the curve.")
+        st.info("Set a 'Total cash you could put in' above €0 to see the curves.")
     else:
         def fmt(v):
             return pct(v) if is_pct else euro(v)
@@ -547,20 +573,29 @@ with t_optim:
                 return "is highest at €0 — here *keeping your cash invested* beats putting it in"
             return f"peaks at a sweet spot of **{euro(c['best_d'])}**"
 
-        best_mt = max(TYPES, key=lambda mt: curves[mt]["best_y"])
-        lines = " ".join(
-            f"**{TYPES[mt].split(' ')[0]}**: {fmt(curves[mt]['best_y'])} when you put in "
-            f"{euro(curves[mt]['best_d'])} — the curve {edge_note(curves[mt])}."
-            for mt in TYPES
-        )
+        bv, bmt = best_key
         st.success(
-            f"Best overall: **{TYPES[best_mt]}**, putting in **{euro(curves[best_mt]['best_d'])}** "
-            f"of your {euro(cap)} → {metric.lower()} of **{fmt(curves[best_mt]['best_y'])}**."
+            f"Best overall: put in **{euro(bc['best_d'])}** of your {euro(cap)} as a "
+            f"**{TYPES[bmt].split(' ')[0]}** mortgage and invest the rest in a "
+            f"**{CASH_VEHICLES[bv].split(' (')[0].lower()}** → {metric.lower()} of **{fmt(bc['best_y'])}**."
+        )
+        # One line per vehicle: its better mortgage type and where that curve peaks.
+        lines = " ".join(
+            (lambda bmt_v, c: f"**{CASH_VEHICLES[v].split(' (')[0]}**: best as "
+                              f"{TYPES[bmt_v].split(' ')[0]}, {fmt(c['best_y'])} — the curve {edge_note(c)}.")(
+                bmt_v := max(TYPES, key=lambda mt: curves[(v, mt)]["best_y"]),
+                curves[(v, bmt_v)])
+            for v in SWEEP_VEHICLES
         )
         st.caption(lines)
+        st.caption("This model is close to linear in the down payment, so the best answer is usually a "
+                   "**corner** (€0 or your whole pot): if a vehicle's after-tax return beats the after-tax "
+                   "mortgage cost, keep cash invested; if not, put it all in. Interior *sweet spots* come "
+                   "from the box-3 tax-free allowance, NHG and the deduction cap.")
         if is_pct:
             st.caption("Note: *annualised return* usually peaks at a low down payment (more leverage), "
-                       "while *net worth* peaks where your absolute wealth is highest — switch the metric to compare.")
+                       "while *net profit / net worth* peak where your absolute money is highest — "
+                       "switch the metric to compare.")
         elif cap != ref_cash:
             st.caption(f"You're exploring a €{cap:,.0f} pool; your scenarios above use €{ref_cash:,.0f}. "
                        "Set 'total cash' to that for the dots to match the recommendation exactly."
